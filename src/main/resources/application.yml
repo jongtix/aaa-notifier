@@ -1,0 +1,59 @@
+server:
+  shutdown: graceful
+
+spring:
+  application:
+    name: aaa-notifier
+  threads:
+    virtual:
+      enabled: true
+  jackson:
+    time-zone: Asia/Seoul
+    property-naming-strategy: SNAKE_CASE
+  data:
+    redis:
+      # 필터 상태 저장소 연결 (실제 filter:* 키 읽기/쓰기는 FILTER-001 소관, 본 골격은 연결 구성 + liveness만)
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      username: ${REDIS_APPUSER_USERNAME}
+      password: ${REDIS_APPUSER_PASSWORD}
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+logging:
+  pattern:
+    # 로컬 개발 전용. %m CRLF 방어 미적용 — 소비자가 개발자 본인이며 프로덕션은 ECS JSON 사용.
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr([%5p]){} %clr([%8.8X{trace_id}]){blue} %clr(${PID:-}){magenta} %clr(--- [%15.15t]){faint} %clr(%-40.40logger{39}){cyan}%clr(:%L){faint} %clr(:){faint} %m%n%wEx"
+  file:
+    name: ${LOG_PATH:/var/log/aaa-notifier}/aaa-notifier.log
+  structured:
+    format:
+      # ECS JSON 구조화 로그 (파일 대상, KST — collector와 동일 패턴, ADR-011).
+      # 파일 appender는 read_only 컨테이너에서 aaa-infra compose가 /var/log/aaa-notifier 쓰기 마운트를 제공한다.
+      file: ecs
+  logback:
+    rollingpolicy:
+      file-name-pattern: ${LOG_PATH:/var/log/aaa-notifier}/aaa-notifier.%d{yyyy-MM-dd}.%i.log.gz
+      max-file-size: 1GB
+      max-history: 30
+      total-size-cap: 50GB
+  level:
+    root: INFO
+    org.springframework: WARN
+    io.lettuce: WARN
+    io.netty: WARN
+    com.aaa.notifier: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # REQ-NOTIFIER-FOUNDATION-009/010 (B5): health + prometheus(VM 호환)만 내부 노출, 그 외 엔드포인트 미노출
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+  health:
+    redis:
+      # 기본 RedisHealthIndicator(INFO 명령) 비활성화 — 커스텀 RedisPingHealthIndicator(PING)로 대체 (ADR-015)
+      enabled: false
