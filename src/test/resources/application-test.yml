@@ -1,0 +1,11 @@
+# test 프로파일 — 프로덕션 환경변수 자리를 테스트용 구체 값으로 오버라이드.
+# 통합 테스트(@Tag("integration"))는 RedisAutoConfiguration이 활성이므로 host/port/자격증명 placeholder가
+# 해소되어야 한다. host/port는 Testcontainers @ServiceConnection ConnectionDetails가 다시 덮어쓴다.
+# redis:8-alpine은 인증이 없으므로 username/password는 빈 값으로 둔다.
+spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      username: ""
+      password: ""

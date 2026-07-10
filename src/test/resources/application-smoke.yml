@@ -1,0 +1,9 @@
+# smoke 프로파일 — Redis AutoConfiguration 전담 exclude
+# @SpringBootTest에서 실제 Redis 연결이 불필요한 smoke 테스트용(actuator 엔드포인트·컨텍스트 로드·ECS 로깅).
+# Redis 빈이 없으면 RedisHealthConfig의 @ConditionalOnBean이 비활성화되어 /actuator/health가 UP(200)을 반환한다
+# (실 Redis 미기동 환경에서 health DOWN(503)을 피함). 실 Redis liveness 검증은 @Tag("integration") 통합 테스트가 담당한다.
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
