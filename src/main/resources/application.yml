@@ -53,6 +53,13 @@ management:
   endpoint:
     health:
       show-details: never
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,redis
   health:
     redis:
       # 기본 RedisHealthIndicator(INFO 명령) 비활성화 — 커스텀 RedisPingHealthIndicator(PING)로 대체 (ADR-015)

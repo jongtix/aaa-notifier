@@ -30,9 +30,11 @@ COPY --chown=notifier:notifier --from=build /notifier/build/libs/aaa-notifier.ja
 USER notifier
 EXPOSE 8080
 
-# 헬스체크: Spring Actuator /actuator/health (Alpine BusyBox wget 사용)
+# 헬스체크: Spring Actuator /actuator/health/liveness (Alpine BusyBox wget 사용)
+# liveness는 JVM/프로세스 생존만 반영(외부 의존성 미포함) — Redis 일시 장애로 aggregate health가 DOWN이 되어도
+# Docker HEALTHCHECK/CD --wait가 정상 배포를 오탐 롤백하지 않도록 분리한다.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+  CMD wget -qO- http://localhost:8080/actuator/health/liveness || exit 1
 
 # JVM 옵션: TECHSPEC 10.3절 기준 (컨테이너 limit 600MB에 맞춘 힙/메타스페이스/다이렉트 상한)
 # collector의 AIA chasing 2프로퍼티는 미이식 — koreaexim TLS 전용이며, 텔레그램은 유효 인증서 체인이라 불필요.
