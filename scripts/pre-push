@@ -1,0 +1,29 @@
+#!/bin/sh
+# Pre-push hook: PMD + Tests (unit only)
+# Formatting → pre-commit, SpotBugs → CI
+# `test` = unit tests only (Testcontainers-tagged integration tests excluded via
+# build.gradle.kts tag filter); integration tests run in CI (`./gradlew check`).
+# See aaa-notifier/CLAUDE.md test tagging convention (REQ-NOTIFIER-FOUNDATION-024/025).
+
+echo "[pre-push] Running PMD and tests..."
+
+TIMEOUT_SECS=600
+
+./gradlew pmdMain pmdTest test --daemon --quiet &
+GRADLE_PID=$!
+
+( sleep $TIMEOUT_SECS; echo "[pre-push] Timeout after ${TIMEOUT_SECS}s — killing gradle."; kill $GRADLE_PID 2>/dev/null ) &
+WATCHDOG_PID=$!
+
+wait $GRADLE_PID
+GRADLE_EXIT=$?
+
+kill $WATCHDOG_PID 2>/dev/null
+wait $WATCHDOG_PID 2>/dev/null
+
+if [ $GRADLE_EXIT -ne 0 ]; then
+    echo "[pre-push] PMD or tests failed. Fix issues before pushing."
+    exit 1
+fi
+
+echo "[pre-push] All checks passed."

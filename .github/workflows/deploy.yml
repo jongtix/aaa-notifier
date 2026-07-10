@@ -1,0 +1,93 @@
+# Docker 워크플로(CI) 성공 후에만 배포 트리거 — 빌드 실패 시 배포 차단
+name: Deploy
+
+on:
+  workflow_run:
+    # Depends on: .github/workflows/docker.yml (name: "Docker")
+    workflows: ["Docker"]
+    types: [completed]
+
+permissions: {}  # 워크플로 전체 기본 권한 차단, job별 최소 권한 선언
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: read  # checkout 전용, 그 외 권한 불필요
+
+    env:
+      AAA_INFRA_DIR: ${{ vars.AAA_INFRA_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # B4: notifier는 DDL이 없다(ADR-016 — notification_log 마이그레이션은 collector Flyway 소유).
+      # 따라서 collector deploy.yml의 "Check for new migrations" 스텝과 has_migrations 조건부 롤백 분기를
+      # 제거하고, 실패 시 무조건 이전 digest로 롤백한다(analyzer FOUNDATION-001 B4 선례).
+      - name: Save current image digest
+        id: prev
+        run: |
+          PREV_DIGEST=$(docker inspect notifier --format='{{index .RepoDigests 0}}' 2>/dev/null || echo "")
+          echo "prev_digest=$PREV_DIGEST" >> $GITHUB_OUTPUT
+
+      - name: Pull latest image
+        run: docker compose --project-directory "$AAA_INFRA_DIR" pull notifier
+
+      - name: Deploy notifier
+        # 컨테이너 헬스체크(/actuator/health) 통과까지 최대 3분 대기 (JVM cold start + healthcheck interval 포함).
+        # notifier는 포트(내부 8080)·/actuator/health를 갖추므로 --wait healthcheck가 정상 동작한다.
+        run: docker compose --project-directory "$AAA_INFRA_DIR" up -d --wait --wait-timeout 180 notifier
+
+      - name: Prune dangling images
+        # 배포 성공 시에만 직전 latest 이미지(dangling) 정리. 롤백은 GHCR에서 다이제스트로 재-pull하므로 로컬 캐시와 무관.
+        if: success()
+        run: docker image prune -f
+
+      - name: Rollback on failure
+        id: rollback
+        # B4: 마이그레이션 조건 없이 이전 digest가 존재하면 무조건 롤백한다.
+        if: failure() && steps.prev.outputs.prev_digest != ''
+        env:
+          PREV_DIGEST: ${{ steps.prev.outputs.prev_digest }}
+        run: |
+          echo "Rolling back to $PREV_DIGEST..."
+          docker pull "$PREV_DIGEST"
+          NOTIFIER_IMAGE="$PREV_DIGEST" \
+            docker compose --project-directory "$AAA_INFRA_DIR" up -d --wait --wait-timeout 180 notifier
+          echo "Rollback complete."
+
+      - name: Notify on failure
+        # Redis·캐시 포맷 변경은 자동 감지 불가 — 실패 시 운영자에게 알림으로 위임한다.
+        if: always() && (failure() || steps.rollback.outcome != 'skipped')
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_SYSTEM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_OPERATOR_CHAT_ID }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+          PREV_DIGEST: ${{ steps.prev.outputs.prev_digest }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          echo "::add-mask::$BOT_TOKEN"
+          echo "::add-mask::$CHAT_ID"
+          set +x
+          NL=$'\n'
+          SHORT_SHA="${SHA:0:7}"
+          if [ "$ROLLBACK_OUTCOME" = "success" ]; then
+            SHORT_DIGEST="${PREV_DIGEST##*@}"
+            SHORT_DIGEST="${SHORT_DIGEST:0:15}"
+            TEXT="⚠️ <b>aaa-notifier 배포 실패 — 자동 롤백 완료</b>${NL}이전 이미지로 복구: ${SHORT_DIGEST}${NL}Redis·캐시 포맷 변경 여부를 수동으로 확인하세요.${NL}브랜치: ${BRANCH}${NL}커밋: ${SHORT_SHA}"
+          elif [ "$ROLLBACK_OUTCOME" = "skipped" ]; then
+            TEXT="🚨 <b>aaa-notifier 배포 실패 — 롤백 대상 없음</b>${NL}이전 이미지가 없어 롤백하지 못했습니다. 수동 개입이 필요합니다.${NL}브랜치: ${BRANCH}${NL}커밋: ${SHORT_SHA}"
+          else
+            TEXT="🚨 <b>aaa-notifier 배포 실패 — 자동 롤백도 실패</b>${NL}수동 개입이 필요합니다.${NL}브랜치: ${BRANCH}${NL}커밋: ${SHORT_SHA}"
+          fi
+          printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$BOT_TOKEN" \
+            | curl -sf -K - \
+              --data-urlencode "chat_id=${CHAT_ID}" \
+              --data-urlencode "parse_mode=HTML" \
+              --data-urlencode "text=${TEXT}"
