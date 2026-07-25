@@ -18,6 +18,11 @@ RUN ./gradlew build -x check --no-daemon
 # digest pin: 이미지 변경 시 docker manifest inspect로 AMD64 digest 재조회 필요
 FROM eclipse-temurin:21-jre-alpine@sha256:426401268a42785be73823f6115ee0e721bdb59c12c779947b83fcead1a66645
 
+# OS 패키지 업그레이드: base digest 자체는 최신이나 상류 이미지가 재빌드되지 않아
+# alpine 패키지(libexpat, p11-kit 등)가 배포판 최신 패치를 반영하지 못한 상태로 남을 수 있다.
+# 최종 런타임 스테이지에서만 적용 — 빌드 스테이지는 재현성을 위해 불변 유지.
+RUN apk upgrade --no-cache
+
 # 비루트 유저 생성 + 로그/힙덤프 디렉토리 준비 (read_only 컨테이너에서 notifier 유저 쓰기 권한 보장)
 # UID/GID 1006 — collector(1004)·analyzer(1005)와 비충돌 (REQ-NOTIFIER-FOUNDATION-020, 2026-07-05 확정)
 RUN addgroup -S -g 1006 notifier && adduser -S -u 1006 notifier -G notifier \
