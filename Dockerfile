@@ -3,6 +3,9 @@
 FROM eclipse-temurin:21-jdk-alpine@sha256:1ff763083f2993d57d0bf374ab10bb3e2cb873af6c13a04458ebbd3e0337dc76 AS build
 WORKDIR /notifier
 
+# 릴리스 태그 버전 주입 (docker.yml build-args) — 기본값은 로컬 빌드용
+ARG VERSION=0.0.0
+
 # Gradle wrapper + 빌드 설정 (의존성 레이어 캐시용 — src 변경 시 재다운로드 방지)
 COPY gradlew settings.gradle.kts build.gradle.kts gradle.properties ./
 COPY gradle/ gradle/
@@ -12,7 +15,7 @@ RUN ./gradlew dependencies --no-daemon
 # -x check: 정적 분석(spotbugs, pmd, spotless)과 테스트는 CI(release.yml)에서 실행하므로
 #           Docker 빌드에서는 JAR 생성만 수행 (config/ 룰 파일은 check 태스크에서만 참조되어 불필요)
 COPY src/ src/
-RUN ./gradlew build -x check --no-daemon
+RUN ./gradlew build -x check --no-daemon -Pversion=${VERSION}
 
 # === Runtime stage ===
 # digest pin: 이미지 변경 시 docker manifest inspect로 AMD64 digest 재조회 필요
