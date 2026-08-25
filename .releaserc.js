@@ -37,24 +37,9 @@ module.exports = {
                 parserOpts: PARSER_OPTS,
             },
         ],
-        // prepare 단계에서 gradle.properties 버전 업데이트 (sed)
-        [
-            "@semantic-release/exec",
-            {
-                // ${nextRelease.version}은 Lodash 템플릿 — 백틱(`) 사용 금지
-                prepareCmd:
-                    "sed -i 's/^version=.*/version=${nextRelease.version}/' gradle.properties",
-            },
-        ],
-        // 변경된 gradle.properties를 릴리즈 커밋으로 push
-        [
-            "@semantic-release/git",
-            {
-                assets: ["gradle.properties"],
-                message: "🔖 chore(release): v${nextRelease.version} [skip ci]",
-            },
-        ],
         // GitHub Release 생성 + git 태그 push → docker.yml 트리거
+        // 버전은 gradle.properties commit-back 대신 빌드 시점에 태그에서 파생한다
+        // (-Pversion=${GITHUB_REF_NAME#v}, SPEC-INFRA-CICD-002 M7)
         "@semantic-release/github",
     ],
 };
