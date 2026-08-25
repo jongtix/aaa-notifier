@@ -29,6 +29,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
 
       # B4: notifier는 DDL이 없다(ADR-016 — notification_log 마이그레이션은 collector Flyway 소유).
       # 따라서 collector deploy.yml의 "Check for new migrations" 스텝과 has_migrations 조건부 롤백 분기를
