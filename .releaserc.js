@@ -5,9 +5,19 @@
 const HEADER_PATTERN =
     /^(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}]\uFE0F?\s*)?(\w+)(?:\(([\w$.\-*\s]*)\))?(!)??:\s(.*)$/u;
 
+// breaking marker(!) 판정 전용 패턴 — PARSER_OPTS가 breakingHeaderPattern을 덮어쓰지 않으면
+// preset(conventionalcommits)의 업스트림 기본값 /^(\w*)(?:\((.*)\))?!: (.*)$/ 이 쓰이는데,
+// 이 정규식은 선행 이모지를 허용하지 않는다.
+// - 증상: `✨ feat(api)!:`의 `!`가 무시되어 major여야 할 릴리스가 아무 경고 없이 조용히 minor가 된다
+// - 이모지 접두부는 위 HEADER_PATTERN과 바이트 동일해야 한다 (두 정규식이 갈라지면 같은 침묵 결함이 재발)
+// - 나머지 본문은 업스트림 기본값 그대로 유지한다 (이모지 허용 외의 동작 변화 금지)
+const BREAKING_HEADER_PATTERN =
+    /^(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}]\uFE0F?\s*)?(\w*)(?:\((.*)\))?!: (.*)$/u;
+
 const PARSER_OPTS = {
     headerPattern: HEADER_PATTERN,
     headerCorrespondence: ["type", "scope", "breaking", "subject"],
+    breakingHeaderPattern: BREAKING_HEADER_PATTERN,
 };
 
 module.exports = {
