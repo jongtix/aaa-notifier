@@ -118,10 +118,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # docker.yml 자체에 실패 알림을 두어 deploy.yml의 workflow_run 게이팅과
-      # 무관하게 항상 발동시킨다 — deploy.yml은 build-and-push가 성공해야만
-      # 트리거되므로 여기서 실패하면 그쪽 "Notify on failure" 스텝도 skip된다
-      # (SPEC-INFRA-CVE-SCAN-004 REQ-CVE-001/003).
       - name: Notify on failure
         if: failure()
         env:
