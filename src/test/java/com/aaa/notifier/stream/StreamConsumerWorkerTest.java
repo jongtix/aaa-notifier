@@ -1,10 +1,12 @@
 package com.aaa.notifier.stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -16,12 +18,17 @@ import static org.mockito.Mockito.when;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Range;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.connection.RedisStreamCommands.XClaimOptions;
 import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
@@ -232,6 +239,113 @@ class StreamConsumerWorkerTest {
                             eq("7-1"),
                             any(),
                             eq(DeadLetterPublisher.Reason.PAYLOAD_UNPARSEABLE));
+        }
+    }
+
+    @Nested
+    @DisplayName("AC-3 ③ / AC-8 — 소비 루프는 하류 실패·Redis 오류에도 종료되지 않는다")
+    class LoopSurvival {
+
+        private static final Duration AWAIT = Duration.ofSeconds(5);
+
+        @Test
+        @DisplayName("AC-3 ③ 하류 핸들러가 호출마다 예외를 던져도 run() 루프가 계속 돌고 확인응답은 없다")
+        void handlerThrowingOnEveryCall_doesNotTerminateLoop() throws InterruptedException {
+            // Arrange — 같은 메시지가 매 회차 다시 읽히고 핸들러는 매번 실패한다.
+            stubNewMessages(tickRecord("5-0"));
+            CountDownLatch threeFailures = new CountDownLatch(3);
+            doAnswer(
+                            invocation -> {
+                                threeFailures.countDown();
+                                throw new IllegalStateException("하류 실패");
+                            })
+                    .when(handler)
+                    .onTradeTick(any());
+            Thread loop = Thread.ofVirtual().unstarted(worker);
+
+            // Act
+            loop.start();
+            boolean reachedThreeFailures = threeFailures.await(AWAIT.toSeconds(), TimeUnit.SECONDS);
+
+            // Assert — 실패가 3번 이상 났는데도 루프 스레드는 살아 있다.
+            assertThat(reachedThreeFailures).isTrue();
+            assertThat(loop.isAlive()).isTrue();
+            verify(streamOperations, never()).acknowledge(anyString(), anyString(), anyString());
+
+            worker.stop();
+            loop.join(AWAIT);
+            assertThat(loop.isAlive()).as("stop() 이후에는 정상 종료한다").isFalse();
+        }
+
+        @Test
+        @DisplayName("AC-8 Redis 호출이 계속 실패해도 run() 루프가 백오프하며 재시도할 뿐 종료되지 않는다")
+        void redisFailingOnEveryCall_doesNotTerminateLoop() throws InterruptedException {
+            // Arrange — 판독부터 매번 연결 실패, 백오프는 10ms로 짧게 준다.
+            AtomicInteger attempts = new AtomicInteger();
+            CountDownLatch threeAttempts = new CountDownLatch(3);
+            when(streamOperations.pending(anyString(), anyString(), any(), anyLong()))
+                    .thenAnswer(
+                            invocation -> {
+                                attempts.incrementAndGet();
+                                threeAttempts.countDown();
+                                throw new RedisConnectionFailureException("연결 두절");
+                            });
+            StreamConsumerWorker fastBackoff =
+                    new StreamConsumerWorker(
+                            ConsumedStream.TICK_DOMESTIC,
+                            redisTemplate,
+                            new StreamConsumerProperties(
+                                    true,
+                                    Duration.ofSeconds(2),
+                                    10,
+                                    IDLE_THRESHOLD,
+                                    3,
+                                    Duration.ofMillis(10)),
+                            new TickPayloadParser(),
+                            new SignalPayloadParser(),
+                            handler,
+                            deadLetterPublisher);
+            Thread loop = Thread.ofVirtual().unstarted(fastBackoff);
+
+            // Act
+            loop.start();
+            boolean retried = threeAttempts.await(AWAIT.toSeconds(), TimeUnit.SECONDS);
+
+            // Assert
+            assertThat(retried).isTrue();
+            assertThat(loop.isAlive()).isTrue();
+            assertThat(attempts.get()).isGreaterThanOrEqualTo(3);
+
+            fastBackoff.stop();
+            loop.interrupt();
+            loop.join(AWAIT);
+            assertThat(loop.isAlive()).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("예외 경계 — 무엇을 격리하고 무엇을 드러내는가")
+    class ExceptionBoundary {
+
+        @Test
+        @DisplayName("확인응답 자체가 Redis 오류로 실패하면 삼키지 않고 루프의 백오프 경로로 전파한다")
+        void acknowledgeFailure_propagatesToLoopBackoff() {
+            stubNewMessages(tickRecord("5-0"));
+            doThrow(new RedisConnectionFailureException("연결 두절"))
+                    .when(streamOperations)
+                    .acknowledge(anyString(), anyString(), anyString());
+
+            assertThatThrownBy(worker::pollOnce).isInstanceOf(DataAccessException.class);
+        }
+
+        @Test
+        @DisplayName("하류가 Error를 던지면 격리하지 않고 그대로 드러낸다 (VM 오류를 삼키지 않는다)")
+        void errorFromHandler_isNotSwallowed() {
+            stubNewMessages(tickRecord("5-0"));
+            doThrow(new AssertionError("Error는 격리 대상이 아니다")).when(handler).onTradeTick(any());
+
+            assertThatThrownBy(worker::pollOnce).isInstanceOf(AssertionError.class);
+            verify(streamOperations, never()).acknowledge(anyString(), anyString(), anyString());
         }
     }
 
