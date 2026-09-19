@@ -5,6 +5,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
@@ -69,7 +71,6 @@ public class StreamConsumerWorker implements Runnable {
 
     private final AtomicBoolean running = new AtomicBoolean(true);
 
-    @SuppressWarnings("java:S107")
     public StreamConsumerWorker(
             ConsumedStream stream,
             StringRedisTemplate redisTemplate,
@@ -216,6 +217,9 @@ public class StreamConsumerWorker implements Runnable {
     /**
      * 메시지 1건을 처리한다.
      *
+     * <p>하류 전달의 성패만 격리 경계({@link #attemptDelivery})가 판정하고, 확인응답·DLQ 이관은 그 바깥에서 수행한다. 그래서 확인응답이나 DLQ
+     * 기록이 Redis 오류로 실패하면 "하류 실패"로 오인되어 삼켜지지 않고 {@link #run()}의 백오프 경로로 전파된다.
+     *
      * @return 하류 전달이 성공해 확인응답까지 마쳤으면 {@code true}
      */
     private boolean handleRecord(MapRecord<String, String, String> record) {
@@ -225,38 +229,60 @@ public class StreamConsumerWorker implements Runnable {
         // 발행 측 trace_id를 승계해 발행→소비를 하나의 추적 ID로 관통시킨다(REQ-031).
         TraceIdManager.set(fields.get(TickPayloadParser.FIELD_TRACE_ID));
         try {
-            deliver(fields);
-            acknowledge(messageId);
-            return true;
-        } catch (PayloadUnparseableException e) {
-            // 재시도해도 유효해지지 않는다 — 임계를 기다리지 않고 즉시 이관한다(REQ-021 ②).
-            log.warn(
-                    "[stream-consumer] 페이로드 해석 불가 — 즉시 DLQ로 이관한다 stream={} id={} reason={}",
-                    stream.getKey(),
-                    messageId,
-                    e.getMessage());
-            deadLetterPublisher.transfer(
-                    stream, messageId, fields, DeadLetterPublisher.Reason.PAYLOAD_UNPARSEABLE);
-            return false;
-        } catch (Exception e) {
+            Optional<Throwable> failure = attemptDelivery(fields);
+            if (failure.isEmpty()) {
+                acknowledge(messageId);
+                return true;
+            }
+            if (failure.get() instanceof PayloadUnparseableException unparseable) {
+                // 재시도해도 유효해지지 않는다 — 임계를 기다리지 않고 즉시 이관한다(REQ-021 ②).
+                log.warn(
+                        "[stream-consumer] 페이로드 해석 불가 — 즉시 DLQ로 이관한다 stream={} id={} reason={}",
+                        stream.getKey(),
+                        messageId,
+                        unparseable.getMessage());
+                deadLetterPublisher.transfer(
+                        stream, messageId, fields, DeadLetterPublisher.Reason.PAYLOAD_UNPARSEABLE);
+                return false;
+            }
             // 확인응답하지 않는다 — 미확인으로 남아 다음 회차의 재소유 대상이 된다(REQ-013).
-            //
-            // [정적 분석] PMD AvoidCatchingGenericException이 이 catch를 지적한다. 좁힐 수 없다 —
-            // 하류 핸들러는 외부 구현체(FILTER-001)이고 어떤 예외든 던질 수 있는데, AC-3은 "핸들러가 호출마다
-            // 예외를 던져도 어떤 소비 단위도 종료되지 않을 것"을, AC-7은 "그 경우 확인응답하지 않을 것"을
-            // 요구한다. 두 요구를 함께 만족시키려면 이 지점의 포괄 catch가 필수다.
-            // collector 선례는 @SuppressWarnings("PMD.AvoidCatchingGenericException")를 붙여 해소했으나
-            // (DartDisclosurePollingScheduler:33, CatchUpRunner:132 등), 정적 분석 예외 추가는 사용자 승인
-            // 사항이므로 여기서는 억제하지 않고 위반을 드러낸 채 보고한다.
             log.error(
                     "[stream-consumer] 하류 전달 실패 — 확인응답하지 않는다 stream={} id={}",
                     stream.getKey(),
                     messageId,
-                    e);
+                    failure.get());
             return false;
         } finally {
             TraceIdManager.clear();
         }
+    }
+
+    /**
+     * 하류 전달을 격리 실행하고, 예외로 끝났으면 그 원인을 돌려준다(정상이면 빈 값). 어떤 예외도 호출자에게 전파하지 않는다.
+     *
+     * <p><b>왜 {@code catch (Exception)}이 아닌가.</b> 하류 핸들러는 외부 구현체(FILTER-001)라 던질 예외의 종류를 알 수 없다.
+     * 그런데 AC-3은 "핸들러가 호출마다 예외를 던져도 어떤 소비 단위도 종료되지 않을 것"을, AC-7은 "그 경우 확인응답하지 않을 것"을 함께 요구한다. 포괄
+     * catch로 막으면 PMD {@code AvoidCatchingGenericException}에 걸리는데, 정적 분석 예외는 추가하지 않기로 했다. 대신 실행 결과를
+     * {@link CompletableFuture}에 담아 <em>결과 값</em>으로 수거한다 — 실패는 catch 절이 아니라 완료 상태로 관측된다.
+     *
+     * <p>실행기로 {@code Runnable::run}을 주므로 <b>호출 스레드에서 동기 실행</b>된다. 스레드를 건너뛰지 않으니 {@code
+     * TraceIdManager}의 MDC(스레드 로컬)와 인터럽트 상태가 그대로 유지되고, 확인응답 이전에 전달이 끝나야 한다는 순서(REQ-051)도 깨지지 않는다.
+     *
+     * <p>{@link Error}는 격리하지 않고 그대로 던진다. {@code CompletableFuture}는 {@code Throwable} 전체를 삼키는데,
+     * {@code OutOfMemoryError} 같은 VM 오류를 "하류 실패"로 취급해 루프를 계속 돌리면 결함이 가려진다. 기존 {@code catch
+     * (Exception)}도 Error는 통과시켰으므로 그 동작을 유지한다.
+     */
+    private Optional<Throwable> attemptDelivery(Map<String, String> fields) {
+        CompletableFuture<Void> delivery =
+                CompletableFuture.runAsync(() -> deliver(fields), Runnable::run);
+        if (!delivery.isCompletedExceptionally()) {
+            return Optional.empty();
+        }
+        Throwable cause = delivery.exceptionNow();
+        if (cause instanceof Error error) {
+            throw error;
+        }
+        return Optional.of(cause);
     }
 
     /** 관측치를 하류 포트로 <b>동기</b> 전달한다 — 확인응답 이전이어야 at-least-once가 성립한다(REQ-051). */
