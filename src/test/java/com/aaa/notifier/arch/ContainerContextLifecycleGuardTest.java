@@ -147,7 +147,6 @@ class ContainerContextLifecycleGuardTest {
      * 실행되지 않는 RED/GREEN 입증용 fixture — 클래스파일 스캔 대상일 뿐이다. {@code IntegrationTagGuardTest}의 통합 태그 규칙에
      * 걸리지 않도록 태그를 부여해 둔다(테스트 메서드가 없어 실행되지는 않는다).
      */
-    @SuppressWarnings("unused")
     static final class Fixtures {
 
         private Fixtures() {}
@@ -155,35 +154,45 @@ class ContainerContextLifecycleGuardTest {
         @SpringBootTest
         @Tag("integration")
         static final class WithoutDirtiesContext {
-            @Container private static final String C = "dummy";
+            @Container static final String C = "dummy";
+
+            private WithoutDirtiesContext() {}
         }
 
         @SpringBootTest
         @Tag("integration")
         @DirtiesContext(classMode = ClassMode.BEFORE_CLASS)
         static final class BeforeClassMode {
-            @Container private static final String C = "dummy";
+            @Container static final String C = "dummy";
+
+            private BeforeClassMode() {}
         }
 
         @SpringBootTest
         @Tag("integration")
         @DirtiesContext(classMode = ClassMode.AFTER_CLASS)
         static final class AfterClassExplicit {
-            @Container private static final String C = "dummy";
+            @Container static final String C = "dummy";
+
+            private AfterClassExplicit() {}
         }
 
         @SpringBootTest
         @Tag("integration")
         @DirtiesContext
         static final class AfterClassDefault {
-            @Container private static final String C = "dummy";
+            @Container static final String C = "dummy";
+
+            private AfterClassDefault() {}
         }
 
         @SpringBootTest
         @Tag("integration")
         @DirtiesContext(classMode = ClassMode.AFTER_EACH_TEST_METHOD)
         static final class AfterEachMethod {
-            @Container private static final String C = "dummy";
+            @Container static final String C = "dummy";
+
+            private AfterEachMethod() {}
         }
     }
 }
