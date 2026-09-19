@@ -1,26 +1,23 @@
 package com.aaa.notifier.stream;
 
+import static com.aaa.notifier.stream.StreamTestSupport.dlqSize;
+import static com.aaa.notifier.stream.StreamTestSupport.pendingCount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.stream.MapRecord;
-import org.springframework.data.redis.connection.stream.PendingMessagesSummary;
 import org.springframework.data.redis.connection.stream.StreamInfo;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.annotation.DirtiesContext;
@@ -42,6 +39,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @ActiveProfiles("test")
 @Testcontainers
 @Tag("integration")
+@Import(RecordingHandlerConfiguration.class)
 // 컨텍스트가 컨테이너보다 오래 살면 죽은 포트를 재사용한 다음 컨테이너에 워커가 접속해 메시지를 가로챈다
 // (ContainerContextLifecycleGuardTest 참조).
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -56,8 +54,11 @@ class StreamConsumerIntegrationTest {
 
     private static final Duration WAIT = Duration.ofSeconds(15);
 
+    /** 국내 신호 스트림에 실패를 주입하기 위한 심볼 — 해외 신호({@code AAPL})와 구분된다. */
+    private static final String FAILING_SYMBOL = "FAILING";
+
     @Autowired private StringRedisTemplate redisTemplate;
-    @Autowired private RecordingHandler handler;
+    @Autowired private RecordingStreamHandler handler;
     @Autowired private StreamConsumerRunner runner;
 
     @BeforeEach
@@ -176,7 +177,7 @@ class StreamConsumerIntegrationTest {
                 KisFrameFixtures.tickEntry(
                         "005930", "H0STZZZ0", "a^b^c", KisFrameFixtures.TRACE_ID));
 
-        await().atMost(WAIT).until(() -> dlqSize(ConsumedStream.TICK_DOMESTIC) >= 1);
+        await().atMost(WAIT).until(() -> dlqSize(redisTemplate, ConsumedStream.TICK_DOMESTIC) >= 1);
 
         List<MapRecord<String, String, String>> dlq =
                 redisTemplate
@@ -186,100 +187,79 @@ class StreamConsumerIntegrationTest {
         assertThat(dlq.getFirst().getValue())
                 .containsEntry("original_stream", "stream:tick:domestic")
                 .containsEntry("reason", "payload_unparseable");
-        await().atMost(WAIT).until(() -> pendingCount(ConsumedStream.TICK_DOMESTIC) == 0);
+        await().atMost(WAIT).until(() -> pending(ConsumedStream.TICK_DOMESTIC) == 0);
     }
 
     @Test
-    @DisplayName("AC-3 — 한 스트림의 하류 실패가 나머지 스트림의 소비를 막지 않는다")
+    @DisplayName("AC-3 — 한 스트림의 하류 실패가 나머지 3개 스트림의 소비를 막지 않는다")
     void failingStream_doesNotBlockOtherStreams() {
-        handler.failSignals(true);
-        try {
-            publish(ConsumedStream.SIGNAL_DOMESTIC, KisFrameFixtures.signalEntry());
-            publish(
-                    ConsumedStream.TICK_DOMESTIC,
-                    KisFrameFixtures.tickEntry(
-                            "005930",
-                            "H0STCNT0",
-                            KisFrameFixtures.DOMESTIC_TRADE_RECORD,
-                            KisFrameFixtures.TRACE_ID));
+        // Arrange — 국내 신호 스트림의 핸들러만 호출마다 예외를 던진다(심볼 FAILING).
+        handler.failSignalsOf(FAILING_SYMBOL);
+        publishAllFourStreams();
 
-            // 정상 스트림은 소비되어 미확인 0건
-            await().atMost(WAIT).until(() -> pendingCount(ConsumedStream.TICK_DOMESTIC) == 0);
-            // 실패 스트림은 미확인 상태로 남는다.
-            // 스트림마다 폴링 주기가 독립이라 신호 워커가 아직 읽기 전일 수 있다 — 읽힌 뒤의 상태를 본다.
-            await().atMost(WAIT).until(() -> pendingCount(ConsumedStream.SIGNAL_DOMESTIC) > 0);
-            assertThat(pendingCount(ConsumedStream.SIGNAL_DOMESTIC)).isPositive();
-        } finally {
-            handler.failSignals(false);
-        }
+        // Act — 4스트림 모두에서 하류 전달(또는 실패 시도)이 관측될 때까지 기다린다.
+        // 미확인 건수 같은 일시 상태가 아니라 핸들러가 직접 센 호출을 근거로 삼는다.
+        await().atMost(WAIT)
+                .until(
+                        () ->
+                                handler.trades().size() >= 2
+                                        && !handler.signals().isEmpty()
+                                        && handler.signalAttempts() >= 2);
+
+        // Assert ① — 정상 3스트림은 하류 전달 후 확인응답되어 미확인 0건이다.
+        await().atMost(WAIT)
+                .until(
+                        () ->
+                                pending(ConsumedStream.TICK_DOMESTIC) == 0
+                                        && pending(ConsumedStream.TICK_OVERSEAS) == 0
+                                        && pending(ConsumedStream.SIGNAL_OVERSEAS) == 0);
+        // Assert ② — 실패 스트림의 메시지는 확인응답되지 않은 채 유지된다(유지 여부는 창을 두고 지켜본다).
+        await().atMost(WAIT)
+                .during(Duration.ofMillis(500))
+                .until(() -> pending(ConsumedStream.SIGNAL_DOMESTIC) == 1);
+
+        // Assert ③ — 실패 이후에도 4개 소비 단위가 모두 살아 있다: 새 메시지가 4스트림 전부에서 다시 소비된다.
+        publishAllFourStreams();
+        await().atMost(WAIT)
+                .until(
+                        () ->
+                                handler.trades().size() >= 4
+                                        && handler.signals().size() >= 2
+                                        && handler.signalAttempts() >= 4);
+        assertThat(runner.isRunning()).isTrue();
+        assertThat(handler.deliveryThreads())
+                .as("스트림당 1개씩 4개 소비 스레드가 전달을 수행했고 전부 살아 있다")
+                .hasSize(4)
+                .allSatisfy(thread -> assertThat(thread.isAlive()).isTrue());
+    }
+
+    /** 4스트림에 1건씩 발행한다. 국내 신호는 실패 주입 대상 심볼로 발행한다. */
+    private void publishAllFourStreams() {
+        publish(
+                ConsumedStream.TICK_DOMESTIC,
+                KisFrameFixtures.tickEntry(
+                        "005930",
+                        "H0STCNT0",
+                        KisFrameFixtures.DOMESTIC_TRADE_RECORD,
+                        KisFrameFixtures.TRACE_ID));
+        publish(
+                ConsumedStream.TICK_OVERSEAS,
+                KisFrameFixtures.tickEntry(
+                        "DNASAAPL",
+                        "HDFSCNT0",
+                        KisFrameFixtures.OVERSEAS_TRADE_RECORD,
+                        KisFrameFixtures.TRACE_ID));
+        publish(ConsumedStream.SIGNAL_OVERSEAS, KisFrameFixtures.signalEntry());
+        publish(
+                ConsumedStream.SIGNAL_DOMESTIC,
+                KisFrameFixtures.replace(KisFrameFixtures.signalEntry(), "symbol", FAILING_SYMBOL));
     }
 
     private void publish(ConsumedStream stream, Map<String, String> fields) {
-        redisTemplate.opsForStream().add(MapRecord.create(stream.getKey(), fields));
+        StreamTestSupport.publish(redisTemplate, stream, fields);
     }
 
-    private long pendingCount(ConsumedStream stream) {
-        PendingMessagesSummary summary =
-                redisTemplate
-                        .opsForStream()
-                        .pending(stream.getKey(), ConsumedStream.CONSUMER_GROUP);
-        return summary == null ? 0L : summary.getTotalPendingMessages();
-    }
-
-    private long dlqSize(ConsumedStream stream) {
-        Long size = redisTemplate.opsForStream().size(stream.dlqKey());
-        return size == null ? 0L : size;
-    }
-
-    /** 하류 도달을 기록하고, 필요 시 특정 관측치 종류에만 실패를 주입하는 테스트 핸들러. */
-    static class RecordingHandler implements StreamObservationHandler {
-
-        private final List<TradeTickObservation> tradeLog = new CopyOnWriteArrayList<>();
-        private final List<SignalObservation> signalLog = new CopyOnWriteArrayList<>();
-        private final AtomicBoolean signalFailure = new AtomicBoolean();
-
-        @Override
-        public void onTradeTick(TradeTickObservation observation) {
-            tradeLog.add(observation);
-        }
-
-        @Override
-        public void onQuote(QuoteObservation observation) {
-            // 이 테스트는 호가 경로를 검증하지 않는다 — 호가 파싱 계약은 단위 테스트가 고정한다.
-        }
-
-        @Override
-        public void onSignal(SignalObservation observation) {
-            if (signalFailure.get()) {
-                throw new IllegalStateException("주입된 하류 실패");
-            }
-            signalLog.add(observation);
-        }
-
-        List<TradeTickObservation> trades() {
-            return new ArrayList<>(tradeLog);
-        }
-
-        List<SignalObservation> signals() {
-            return new ArrayList<>(signalLog);
-        }
-
-        void failSignals(boolean fail) {
-            signalFailure.set(fail);
-        }
-
-        void clear() {
-            tradeLog.clear();
-            signalLog.clear();
-        }
-    }
-
-    @TestConfiguration
-    static class HandlerConfiguration {
-
-        @Bean
-        RecordingHandler recordingHandler() {
-            return new RecordingHandler();
-        }
+    private long pending(ConsumedStream stream) {
+        return pendingCount(redisTemplate, stream);
     }
 }
