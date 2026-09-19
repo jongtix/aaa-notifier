@@ -58,7 +58,10 @@ final class StreamSourceScan {
     private static SourceFile read(Path path) {
         try {
             String source = Files.readString(path, StandardCharsets.UTF_8);
-            return new SourceFile(path.getFileName().toString(), stripComments(source));
+            Path fileName = path.getFileName();
+            return new SourceFile(
+                    fileName == null ? path.toString() : fileName.toString(),
+                    stripComments(source));
         } catch (IOException e) {
             throw new UncheckedIOException("소스 파일을 읽을 수 없다: " + path, e);
         }
