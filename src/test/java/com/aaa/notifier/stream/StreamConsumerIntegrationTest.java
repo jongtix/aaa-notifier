@@ -23,6 +23,7 @@ import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.PendingMessagesSummary;
 import org.springframework.data.redis.connection.stream.StreamInfo;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -41,6 +42,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @ActiveProfiles("test")
 @Testcontainers
 @Tag("integration")
+// 컨텍스트가 컨테이너보다 오래 살면 죽은 포트를 재사용한 다음 컨테이너에 워커가 접속해 메시지를 가로챈다
+// (ContainerContextLifecycleGuardTest 참조).
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("소비 계층 통합 테스트 (실 Redis)")
 class StreamConsumerIntegrationTest {
 
