@@ -1,5 +1,7 @@
 package com.aaa.notifier.stream;
 
+import lombok.Getter;
+
 /**
  * 소비 대상 4개 스트림과 그 Consumer Group·컨슈머 이름 계약 (REQ-NOTIFIER-CONSUMER-001, TECHSPEC §5.1).
  *
@@ -14,6 +16,7 @@ package com.aaa.notifier.stream;
  * <p>@MX:REASON: fan_in >= 3 (StreamConsumerRunner 그룹 생성, StreamConsumerWorker 소비 루프,
  * DeadLetterPublisher 이관 경로).
  */
+@Getter
 public enum ConsumedStream {
 
     /** collector `KisTickPublisher` 국내 틱. */
@@ -43,9 +46,16 @@ public enum ConsumedStream {
 
     private static final String DLQ_KEY_PREFIX = "stream:dlq:";
 
+    /** Redis 스트림 키. */
     private final String key;
+
+    /** 이 스트림 전용 컨슈머 이름 ({@code :} 미포함). */
     private final String consumerName;
+
+    /** 스트림 키에서 결정되는 시장 구분. */
     private final Market market;
+
+    /** 페이로드 계약 종류. */
     private final PayloadKind payloadKind;
 
     ConsumedStream(String key, String consumerName, Market market, PayloadKind payloadKind) {
@@ -62,26 +72,6 @@ public enum ConsumedStream {
 
         /** analyzer `SIGNAL_STREAM_FIELDS` 7필드 엔트리 (REQ-041). */
         SIGNAL
-    }
-
-    /** Redis 스트림 키. */
-    public String key() {
-        return key;
-    }
-
-    /** 이 스트림 전용 컨슈머 이름 ({@code :} 미포함). */
-    public String consumerName() {
-        return consumerName;
-    }
-
-    /** 스트림 키에서 결정되는 시장 구분. */
-    public Market market() {
-        return market;
-    }
-
-    /** 페이로드 계약 종류. */
-    public PayloadKind payloadKind() {
-        return payloadKind;
     }
 
     /** 이 스트림의 DLQ 키 — {@code stream:dlq:{원본 스트림명}} (REQ-021). */
