@@ -3,6 +3,7 @@ package com.aaa.notifier.stream;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 /**
  * KIS 실시간 프레임 실측 픽스처 (plan.md §D M1 — 계약 고정).
@@ -127,6 +128,14 @@ final class KisFrameFixtures {
     static Map<String, String> without(Map<String, String> entry, String key) {
         return entry.entrySet().stream()
                 .filter(e -> !e.getKey().equals(key))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    /** 엔트리의 키 1개를 다른 값으로 교체한 맵을 만든다 (값 형식 오류 케이스). */
+    static Map<String, String> replace(Map<String, String> entry, String key, String value) {
+        return Stream.concat(
+                        without(entry, key).entrySet().stream(),
+                        Map.of(key, value).entrySet().stream())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 }
