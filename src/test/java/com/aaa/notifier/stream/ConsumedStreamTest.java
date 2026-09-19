@@ -31,7 +31,7 @@ class ConsumedStreamTest {
         @DisplayName("4개 스트림 키가 TECHSPEC 5.1 계약과 일치한다")
         void streamKeys_matchContract() {
             List<String> keys =
-                    Arrays.stream(ConsumedStream.values()).map(ConsumedStream::key).toList();
+                    Arrays.stream(ConsumedStream.values()).map(ConsumedStream::getKey).toList();
 
             assertThat(keys)
                     .containsExactly(
@@ -66,7 +66,7 @@ class ConsumedStreamTest {
         void consumerNames_followServiceRoleConvention() {
             List<String> names =
                     Arrays.stream(ConsumedStream.values())
-                            .map(ConsumedStream::consumerName)
+                            .map(ConsumedStream::getConsumerName)
                             .toList();
 
             assertThat(names)
@@ -81,7 +81,7 @@ class ConsumedStreamTest {
         @DisplayName("③ 컨슈머 이름 어디에도 `:` 구분자가 없다 (키 구분자와 의도적 구분)")
         void consumerNames_containNoColon() {
             assertThat(ConsumedStream.values())
-                    .allSatisfy(stream -> assertThat(stream.consumerName()).doesNotContain(":"));
+                    .allSatisfy(stream -> assertThat(stream.getConsumerName()).doesNotContain(":"));
         }
     }
 
@@ -92,22 +92,22 @@ class ConsumedStreamTest {
         @Test
         @DisplayName("시장 구분은 스트림 키에서 결정된다 (trId가 아님 — 스트림이 상위 권위)")
         void market_isDerivedFromStreamKey() {
-            assertThat(ConsumedStream.TICK_DOMESTIC.market()).isEqualTo(Market.DOMESTIC);
-            assertThat(ConsumedStream.TICK_OVERSEAS.market()).isEqualTo(Market.OVERSEAS);
-            assertThat(ConsumedStream.SIGNAL_DOMESTIC.market()).isEqualTo(Market.DOMESTIC);
-            assertThat(ConsumedStream.SIGNAL_OVERSEAS.market()).isEqualTo(Market.OVERSEAS);
+            assertThat(ConsumedStream.TICK_DOMESTIC.getMarket()).isEqualTo(Market.DOMESTIC);
+            assertThat(ConsumedStream.TICK_OVERSEAS.getMarket()).isEqualTo(Market.OVERSEAS);
+            assertThat(ConsumedStream.SIGNAL_DOMESTIC.getMarket()).isEqualTo(Market.DOMESTIC);
+            assertThat(ConsumedStream.SIGNAL_OVERSEAS.getMarket()).isEqualTo(Market.OVERSEAS);
         }
 
         @Test
         @DisplayName("페이로드 종류가 틱/신호로 구분된다")
         void payloadKind_separatesTickFromSignal() {
-            assertThat(ConsumedStream.TICK_DOMESTIC.payloadKind())
+            assertThat(ConsumedStream.TICK_DOMESTIC.getPayloadKind())
                     .isEqualTo(ConsumedStream.PayloadKind.TICK);
-            assertThat(ConsumedStream.TICK_OVERSEAS.payloadKind())
+            assertThat(ConsumedStream.TICK_OVERSEAS.getPayloadKind())
                     .isEqualTo(ConsumedStream.PayloadKind.TICK);
-            assertThat(ConsumedStream.SIGNAL_DOMESTIC.payloadKind())
+            assertThat(ConsumedStream.SIGNAL_DOMESTIC.getPayloadKind())
                     .isEqualTo(ConsumedStream.PayloadKind.SIGNAL);
-            assertThat(ConsumedStream.SIGNAL_OVERSEAS.payloadKind())
+            assertThat(ConsumedStream.SIGNAL_OVERSEAS.getPayloadKind())
                     .isEqualTo(ConsumedStream.PayloadKind.SIGNAL);
         }
     }
