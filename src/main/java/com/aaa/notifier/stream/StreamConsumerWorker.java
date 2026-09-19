@@ -54,7 +54,13 @@ public class StreamConsumerWorker implements Runnable {
     private static final int RECLAIM_SCAN_SIZE = 100;
 
     private final ConsumedStream stream;
-    private final StringRedisTemplate redisTemplate;
+
+    /**
+     * 템플릿이 아니라 스트림 연산 뷰를 보관한다. {@code opsForStream()}은 템플릿에 묶인 무상태 뷰라 한 번 얻어 재사용해도 안전하고, 가변 템플릿 참조를
+     * 필드로 들고 있지 않게 되어 정적 분석의 내부 표현 노출 경고도 사라진다.
+     */
+    private final StreamOperations<String, String, String> streamOperations;
+
     private final StreamConsumerProperties properties;
     private final TickPayloadParser tickParser;
     private final SignalPayloadParser signalParser;
@@ -73,7 +79,7 @@ public class StreamConsumerWorker implements Runnable {
             StreamObservationHandler handler,
             DeadLetterPublisher deadLetterPublisher) {
         this.stream = stream;
-        this.redisTemplate = redisTemplate;
+        this.streamOperations = redisTemplate.opsForStream();
         this.properties = properties;
         this.tickParser = tickParser;
         this.signalParser = signalParser;
@@ -89,6 +95,9 @@ public class StreamConsumerWorker implements Runnable {
      */
     @Override
     public void run() {
+        // 재기동 대비 — 러너는 워커 인스턴스를 재사용하므로, 여기서 되살리지 않으면 이전 stop()의 플래그가 남아
+        // 재기동 후 루프가 한 바퀴도 돌지 않고 조용히 끝난다(통합 테스트 재기동 시나리오에서 실측으로 드러났다).
+        running.set(true);
         log.info(
                 "[stream-consumer] 소비 시작 stream={} group={} consumer={}",
                 stream.getKey(),
@@ -137,12 +146,11 @@ public class StreamConsumerWorker implements Runnable {
     private int reclaimStale() {
         Duration idleThreshold = properties.claimIdleThreshold();
         PendingMessages pending =
-                streamOperations()
-                        .pending(
-                                stream.getKey(),
-                                ConsumedStream.CONSUMER_GROUP,
-                                Range.unbounded(),
-                                RECLAIM_SCAN_SIZE);
+                streamOperations.pending(
+                        stream.getKey(),
+                        ConsumedStream.CONSUMER_GROUP,
+                        Range.unbounded(),
+                        RECLAIM_SCAN_SIZE);
 
         List<RecordId> reclaimable = new ArrayList<>();
         List<String> overLimit = new ArrayList<>();
@@ -163,36 +171,35 @@ public class StreamConsumerWorker implements Runnable {
         }
 
         List<MapRecord<String, String, String>> claimed =
-                streamOperations()
-                        .claim(
-                                stream.getKey(),
-                                ConsumedStream.CONSUMER_GROUP,
-                                stream.getConsumerName(),
-                                XClaimOptions.minIdle(idleThreshold).ids(reclaimable));
+                streamOperations.claim(
+                        stream.getKey(),
+                        ConsumedStream.CONSUMER_GROUP,
+                        stream.getConsumerName(),
+                        XClaimOptions.minIdle(idleThreshold).ids(reclaimable));
         return handleAll(claimed);
     }
 
     /** 임계를 넘긴 메시지를 DLQ로 보낸다. 엔트리 본문은 PEL에 없으므로 {@code XRANGE}로 읽는다(재전달 횟수를 늘리지 않는 읽기다). */
     private void deadLetterOverLimit(String messageId) {
         List<MapRecord<String, String, String>> found =
-                streamOperations().range(stream.getKey(), Range.closed(messageId, messageId));
+                streamOperations.range(stream.getKey(), Range.closed(messageId, messageId));
 
         // 엔트리가 이미 MAXLEN 트리밍으로 사라졌을 수 있다 — 그때는 남은 메타데이터만 실어 보낸다.
-        Map<String, String> fields = found.isEmpty() ? Map.of() : found.getFirst().getValue();
+        // (연결 계층이 null을 돌려주는 경로도 같은 취급이다.)
+        Map<String, String> fields =
+                found == null || found.isEmpty() ? Map.of() : found.getFirst().getValue();
         deadLetterPublisher.transfer(
                 stream, messageId, fields, DeadLetterPublisher.Reason.MAX_DELIVERY_EXCEEDED);
     }
 
     private int readNew() {
         List<MapRecord<String, String, String>> records =
-                streamOperations()
-                        .read(
-                                Consumer.from(
-                                        ConsumedStream.CONSUMER_GROUP, stream.getConsumerName()),
-                                StreamReadOptions.empty()
-                                        .count(properties.readBatchSize())
-                                        .block(properties.blockTimeout()),
-                                StreamOffset.create(stream.getKey(), ReadOffset.lastConsumed()));
+                streamOperations.read(
+                        Consumer.from(ConsumedStream.CONSUMER_GROUP, stream.getConsumerName()),
+                        StreamReadOptions.empty()
+                                .count(properties.readBatchSize())
+                                .block(properties.blockTimeout()),
+                        StreamOffset.create(stream.getKey(), ReadOffset.lastConsumed()));
         return records == null ? 0 : handleAll(records);
     }
 
@@ -267,11 +274,7 @@ public class StreamConsumerWorker implements Runnable {
     }
 
     private void acknowledge(String messageId) {
-        streamOperations().acknowledge(stream.getKey(), ConsumedStream.CONSUMER_GROUP, messageId);
-    }
-
-    private StreamOperations<String, String, String> streamOperations() {
-        return redisTemplate.opsForStream();
+        streamOperations.acknowledge(stream.getKey(), ConsumedStream.CONSUMER_GROUP, messageId);
     }
 
     private boolean isShuttingDown() {

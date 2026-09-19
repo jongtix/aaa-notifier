@@ -20,6 +20,21 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
+notifier:
+  stream:
+    # Redis Streams 소비 계층 (SPEC-NOTIFIER-CONSUMER-001 REQ-012 — 전부 외부화).
+    # enabled=false면 그룹 생성도 소비 스레드 기동도 하지 않는다(기동 자체는 성공).
+    enabled: ${NOTIFIER_STREAM_ENABLED:true}
+    # XREADGROUP 블로킹 대기. 종료 신호에 대한 반응 지연의 상한이기도 하므로
+    # spring.lifecycle.timeout-per-shutdown-phase(30s)보다 충분히 짧아야 한다.
+    block-timeout: 2s
+    read-batch-size: 10
+    # 이 시간을 넘게 미확인인 메시지가 재소유 대상이다.
+    claim-idle-threshold: 60s
+    # 재전달 횟수가 이 값을 "초과"하면 DLQ로 이관한다(3 → 4회째가 이관 대상).
+    max-delivery-count: 3
+    error-backoff: 5s
+
 logging:
   pattern:
     # 로컬 개발 전용. %m CRLF 방어 미적용 — 소비자가 개발자 본인이며 프로덕션은 ECS JSON 사용.
