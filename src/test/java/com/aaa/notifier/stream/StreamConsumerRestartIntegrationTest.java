@@ -45,9 +45,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @DisplayName("소비 단위 재기동 오프셋 통합 테스트 (실 Redis)")
 class StreamConsumerRestartIntegrationTest {
 
-    @Container
-    @ServiceConnection
-    @SuppressWarnings("resource")
+    @Container @ServiceConnection
     private static final GenericContainer<?> REDIS =
             new GenericContainer<>("redis:8-alpine").withExposedPorts(6379);
 

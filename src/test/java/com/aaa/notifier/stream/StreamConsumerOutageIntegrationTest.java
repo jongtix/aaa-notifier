@@ -59,7 +59,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class StreamConsumerOutageIntegrationTest {
 
     @Container
-    @SuppressWarnings("resource")
     private static final GenericContainer<?> REDIS =
             new GenericContainer<>("redis:8-alpine").withExposedPorts(6379);
 
