@@ -38,6 +38,9 @@ notifier:
     # 재전달 횟수가 이 값을 "초과"하면 DLQ로 이관한다(3 → 4회째가 이관 대상).
     max-delivery-count: 3
     error-backoff: 5s
+    # DLQ(stream:dlq:{stream명}) 길이 상한. TECHSPEC §5.1 — MAXLEN 500, 정확 트리밍(수동 확인 전 보존 대상이라 근사 트리밍을 쓰지 않는다).
+    # 환경변수 NOTIFIER_STREAM_DLQ_MAX_LEN으로 재정의할 수 있다(다른 키와 동일하게 Spring relaxed binding).
+    dlq-max-len: 500
 
 logging:
   pattern:

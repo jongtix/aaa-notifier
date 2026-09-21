@@ -47,8 +47,9 @@ public class StreamConsumerAutoConfiguration {
     /** DLQ 이관기. */
     @Bean
     @ConditionalOnMissingBean
-    public DeadLetterPublisher deadLetterPublisher(StringRedisTemplate redisTemplate) {
-        return new DeadLetterPublisher(redisTemplate);
+    public DeadLetterPublisher deadLetterPublisher(
+            StringRedisTemplate redisTemplate, StreamConsumerProperties properties) {
+        return new DeadLetterPublisher(redisTemplate, properties.dlqMaxLen());
     }
 
     /**

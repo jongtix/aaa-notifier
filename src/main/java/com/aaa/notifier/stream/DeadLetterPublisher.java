@@ -6,6 +6,7 @@ import java.util.stream.Stream;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.RedisStreamCommands.XAddOptions;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -17,6 +18,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
  *
  * <p><b>이관 순서가 계약이다: DLQ XADD가 먼저, 원본 XACK가 나중.</b> 반대로 하면 XADD가 실패했을 때 원본은 이미 확인응답되어 메시지가 DLQ에도 원본
  * PEL에도 남지 않는다 — 조용한 소실이다. 이 순서는 analyzer {@code consumer.py} {@code _route_to_dlq()}와 동일하다.
+ *
+ * <p><b>DLQ 길이는 상한이 있다</b>(TECHSPEC §5.1 — {@code stream:dlq:{stream명}} MAXLEN 500, <b>정확</b> 트리밍).
+ * 상한을 넘기면 가장 오래된 항목부터 밀려난다. 근사({@code ~}) 트리밍이 아니라는 점이 요점이다 — 근사 트리밍은 매크로 노드 단위로만 잘라 상한을 넘겨 보존할 수
+ * 있다.
  *
  * <p>이관 사실은 WARN 구조화 로그로만 남기고 <b>텔레그램 등 알림 채널로 직접 발송하지 않는다</b>(REQ-022). 사람에게 도달하는 경로(메트릭 + vmalert
  * 룰)는 OBSV-001 소관이며, FOUNDATION-001이 확립한 "시스템 알림은 vmalert/CD 경로로 일원화" 방침과 정합한다.
@@ -39,6 +44,9 @@ public class DeadLetterPublisher {
     public static final String FIELD_REASON = "reason";
 
     private final StringRedisTemplate redisTemplate;
+
+    /** DLQ 길이 상한 — {@code notifier.stream.dlq-max-len}(기본 500). */
+    private final long dlqMaxLen;
 
     /** DLQ 이관 사유 (REQ-021의 두 트리거). */
     @Getter
@@ -85,9 +93,10 @@ public class DeadLetterPublisher {
                                         (original, provenance) -> provenance));
 
         // XADD가 먼저다 — 역순이면 XADD 실패 시 메시지가 어디에도 남지 않는다.
+        // 상한은 XADD와 같은 명령의 MAXLEN으로 건다(approximateTrimming 미지정 = 정확 트리밍).
         redisTemplate
                 .<String, String>opsForStream()
-                .add(MapRecord.create(stream.dlqKey(), payload));
+                .add(MapRecord.create(stream.dlqKey(), payload), XAddOptions.maxlen(dlqMaxLen));
         redisTemplate
                 .<String, String>opsForStream()
                 .acknowledge(stream.getKey(), ConsumedStream.CONSUMER_GROUP, originalId);
