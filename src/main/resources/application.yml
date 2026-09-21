@@ -17,6 +17,10 @@ spring:
       port: ${REDIS_PORT}
       username: ${REDIS_APPUSER_USERNAME}
       password: ${REDIS_APPUSER_PASSWORD}
+      # 명령 타임아웃 (SPEC-NOTIFIER-CONSUMER-001 REQ-014). 미지정 시 Lettuce 기본 60s라 연결 두절 중 소비 호출이
+      # 재전송 대기에 묶여 오류 로그가 최대 60초 늦게 남는다. XREADGROUP 블로킹 대기(notifier.stream.block-timeout=2s)보다
+      # 길어야 한다 — 짧으면(실측 1s) 정상 폴링이 매번 타임아웃된다. 5s = 블로킹 대기 + 여유(2.5배), 종료 예산(30s)보다 충분히 짧다.
+      timeout: 5s
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
