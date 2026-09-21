@@ -68,6 +68,13 @@ public class DeadLetterPublisher {
     /**
      * 메시지 1건을 DLQ로 이관한 뒤 원본에서 확인응답한다.
      *
+     * <p>@MX:ANCHOR: [AUTO] DLQ 이관의 유일한 경로. <b>DLQ XADD가 먼저, 원본 XACK가 나중</b>이라는 순서가 계약이다 — 역순이면
+     * XADD 실패 시 메시지가 DLQ에도 원본 PEL에도 남지 않는다.
+     *
+     * <p>@MX:REASON: fan_in >= 3 — {@code transfer()} 호출 클래스 3개(StreamConsumerWorker 재전달 초과·해석 불가 두
+     * 경로, DeadLetterPublisherTest, DeadLetterMaxLenIntegrationTest). 운영 코드의 호출 클래스는
+     * StreamConsumerWorker 하나(호출 지점 2곳)이므로 3은 테스트 호출을 포함한 값이다.
+     *
      * @param stream 원본 스트림
      * @param originalId 원본 메시지 ID
      * @param originalFields 원본 엔트리 필드 (전부 보존된다; 엔트리가 이미 트리밍됐다면 비어 있을 수 있다)
