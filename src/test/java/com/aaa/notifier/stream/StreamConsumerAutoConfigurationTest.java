@@ -125,6 +125,8 @@ class StreamConsumerAutoConfigurationTest {
                         assertThat(properties.enabled()).isTrue();
                         assertThat(properties.maxDeliveryCount()).isEqualTo(3);
                         assertThat(properties.blockTimeout()).isEqualTo(Duration.ofSeconds(2));
+                        assertThat(properties.claimIdleThreshold())
+                                .isEqualTo(Duration.ofSeconds(30));
                         assertThat(properties.dlqMaxLen()).isEqualTo(500L);
                     });
         }

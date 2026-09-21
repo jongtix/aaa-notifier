@@ -2,6 +2,7 @@ package com.aaa.notifier.stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -37,5 +38,19 @@ class StreamConsumerDefaultsTest {
                                                 .bind("notifier.stream.dlq-max-len", Long.class)
                                                 .orElse(null))
                                 .isEqualTo(500L));
+    }
+
+    @Test
+    @DisplayName("재소유 유휴 임계 기본값은 30초다 (TECHSPEC §5.1 — 30초 이상 ACK 없는 메시지를 재할당)")
+    void claimIdleThreshold_defaultsTo30Seconds() {
+        runner.run(
+                context ->
+                        assertThat(
+                                        Binder.get(context.getEnvironment())
+                                                .bind(
+                                                        "notifier.stream.claim-idle-threshold",
+                                                        Duration.class)
+                                                .orElse(null))
+                                .isEqualTo(Duration.ofSeconds(30)));
     }
 }

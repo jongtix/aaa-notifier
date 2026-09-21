@@ -27,7 +27,7 @@ public record StreamConsumerProperties(
         @DefaultValue("true") boolean enabled,
         @DefaultValue("2s") Duration blockTimeout,
         @DefaultValue("10") int readBatchSize,
-        @DefaultValue("60s") Duration claimIdleThreshold,
+        @DefaultValue("30s") Duration claimIdleThreshold,
         @DefaultValue("3") int maxDeliveryCount,
         @DefaultValue("5s") Duration errorBackoff,
         @DefaultValue("500") long dlqMaxLen) {}
