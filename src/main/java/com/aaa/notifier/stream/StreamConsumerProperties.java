@@ -20,7 +20,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param maxDeliveryCount DLQ 재전달 임계. 이 값을 <b>초과</b>하면 이관한다(기본 3 → 4회째가 이관 대상)
  * @param errorBackoff 일시적 오류 후 재시도까지의 대기 시간
  * @param dlqMaxLen DLQ({@code stream:dlq:{stream명}}) 길이 상한. 초과분은 가장 오래된 항목부터 <b>정확 트리밍</b>으로 밀려난다
- *     (TECHSPEC §5.1)
+ *     (TECHSPEC §5.1). 0 이하면 기동 시점에 실패한다 — {@code XADD ... MAXLEN}이 DLQ 전체를 트리밍하는데 원본은 이미 확인응답된 뒤라
+ *     poison 메시지가 조용히 사라지기 때문이다
  */
 @ConfigurationProperties(prefix = "notifier.stream")
 public record StreamConsumerProperties(
@@ -30,4 +31,12 @@ public record StreamConsumerProperties(
         @DefaultValue("30s") Duration claimIdleThreshold,
         @DefaultValue("3") int maxDeliveryCount,
         @DefaultValue("5s") Duration errorBackoff,
-        @DefaultValue("500") long dlqMaxLen) {}
+        @DefaultValue("500") long dlqMaxLen) {
+
+    public StreamConsumerProperties {
+        if (dlqMaxLen <= 0) {
+            throw new IllegalArgumentException(
+                    "notifier.stream.dlq-max-len은 양수여야 한다 (현재 값: " + dlqMaxLen + ")");
+        }
+    }
+}
