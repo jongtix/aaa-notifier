@@ -44,8 +44,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         properties = {
             "notifier.stream.error-backoff=200ms",
             "notifier.stream.block-timeout=500ms",
-            // 운영 설정에는 Redis 명령 타임아웃이 없어(Lettuce 기본 60s) 두절 중인 호출이 재전송 대기로 오래 붙잡힌다.
-            // 오류 기록·백오프 동작을 시간 안에 관측하려고 이 테스트에서만 짧게 준다 — 운영 기본값은 별도 결정 사안이다.
+            // 운영 기본값(application.yml, 5s — RedisCommandTimeoutDefaultsTest가 검증)보다 더 짧게 줘서
+            // 오류 기록·백오프 동작을 테스트 대기 시간 안에 관측한다.
             "spring.data.redis.timeout=1s",
             "spring.data.redis.connect-timeout=1s"
         })
