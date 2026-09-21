@@ -16,6 +16,13 @@ import org.springframework.stereotype.Component;
  * <b>미지의 추가 필드는 허용</b>한다: analyzer가 필드를 추가했다는 이유만으로 소비가 멈추면 발행자 배포가 소비자를 깨뜨리는 결합이 생긴다.
  *
  * <p>{@code horizon}은 문자열 그대로 보존한다 — 하류가 {@code signal_price_bands} 조회 키로 무변환 사용하기 때문이다.
+ *
+ * <p>@MX:ANCHOR: [AUTO] 신호 페이로드 7필드 계약의 단일 해석 지점. 필드 누락 판정(→ DLQ 즉시 이관)과 {@code horizon} 무변환 보존이 모두
+ * 여기에서만 일어난다.
+ *
+ * <p>@MX:REASON: fan_in >= 3 — {@code parse()} 호출 클래스 3개(StreamConsumerWorker 소비 경로,
+ * SignalPayloadParserTest, StreamConsumerAutoConfigurationTest). 운영 코드의 호출 클래스는
+ * StreamConsumerWorker 하나이므로 3은 테스트 호출을 포함한 값이다.
  */
 @Component
 public class SignalPayloadParser {

@@ -271,6 +271,12 @@ public class StreamConsumerWorker implements Runnable {
      * <p>{@link Error}는 격리하지 않고 그대로 던진다. {@code CompletableFuture}는 {@code Throwable} 전체를 삼키는데,
      * {@code OutOfMemoryError} 같은 VM 오류를 "하류 실패"로 취급해 루프를 계속 돌리면 결함이 가려진다. 기존 {@code catch
      * (Exception)}도 Error는 통과시켰으므로 그 동작을 유지한다.
+     *
+     * <p>@MX:WARN: [AUTO] catch 절이 없고 실행기가 {@code Runnable::run}인 구조가 의도다. 다른 실행기로 바꾸면 전달이 소비 스레드를
+     * 벗어난다.
+     *
+     * <p>@MX:REASON: 호출 스레드 동기 실행이라야 {@code TraceIdManager}의 MDC(스레드 로컬)와 인터럽트 상태가 유지되고 하류 전달이
+     * 확인응답보다 먼저 끝난다(REQ-051). 비동기 실행기로 바꾸면 이 두 가지가 조용히 깨진다.
      */
     private Optional<Throwable> attemptDelivery(Map<String, String> fields) {
         CompletableFuture<Void> delivery =

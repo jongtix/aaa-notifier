@@ -101,6 +101,15 @@ public class StreamConsumerRunner implements SmartLifecycle {
      *
      * <p>한 스트림의 생성 실패로 나머지 3개를 포기하지 않는다(REQ-003). 실패한 스트림은 워커의 백오프 루프가 계속 재시도하므로, 일시적 두절이면 스스로 회복하고
      * 아니면 로그로 드러난다.
+     *
+     * <p>@MX:DEBT: [AUTO] 그룹은 {@code start()}에서 1회만 만든다. 기동 시 생성이 실패했거나 이후 그룹이 사라져 {@code NOGROUP}이
+     * 나면 워커는 백오프 재시도만 하고 그룹을 다시 만들지 않는다(코드상 {@code createGroup} 호출처가 이 메서드 하나뿐이다). 위 문단의 "스스로 회복"은
+     * 일시적 두절로 읽기가 실패한 경우에만 해당하고 그룹 재생성을 뜻하지 않는다. 이 경로를 재현하는 테스트는 없다.
+     *
+     * <p>@MX:CEILING: Redis 데이터 유실(스트림·그룹 삭제) 없이 운영되고 기동 시 Redis가 가용하다는 전제.
+     *
+     * <p>@MX:UPGRADE: 운영에서 {@code NOGROUP} 오류가 한 번이라도 관측되면 워커가 {@code NOGROUP}에서 {@code
+     * ensureGroup}을 다시 호출하도록 바꾼다.
      */
     private void ensureGroup(ConsumedStream stream) {
         try {
