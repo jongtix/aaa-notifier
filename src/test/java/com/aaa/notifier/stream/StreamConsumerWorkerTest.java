@@ -300,7 +300,8 @@ class StreamConsumerWorkerTest {
                                     10,
                                     IDLE_THRESHOLD,
                                     3,
-                                    Duration.ofMillis(10)),
+                                    Duration.ofMillis(10),
+                                    500),
                             new TickPayloadParser(),
                             new SignalPayloadParser(),
                             handler,
@@ -405,7 +406,7 @@ class StreamConsumerWorkerTest {
 
     private StreamConsumerProperties properties() {
         return new StreamConsumerProperties(
-                true, Duration.ofSeconds(2), 10, IDLE_THRESHOLD, 3, Duration.ofSeconds(5));
+                true, Duration.ofSeconds(2), 10, IDLE_THRESHOLD, 3, Duration.ofSeconds(5), 500);
     }
 
     private StreamConsumerWorker overseasWorker() {

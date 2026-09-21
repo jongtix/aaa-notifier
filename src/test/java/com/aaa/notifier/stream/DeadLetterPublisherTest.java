@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.connection.RedisStreamCommands.XAddOptions;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -36,6 +37,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 class DeadLetterPublisherTest {
 
     private static final String ORIGINAL_ID = "1758100000000-0";
+    private static final long DLQ_MAX_LEN = 500;
 
     private final StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
 
@@ -50,7 +52,7 @@ class DeadLetterPublisherTest {
     @BeforeEach
     void setUp() {
         when(redisTemplate.<String, String>opsForStream()).thenReturn(streamOperations);
-        publisher = new DeadLetterPublisher(redisTemplate);
+        publisher = new DeadLetterPublisher(redisTemplate, DLQ_MAX_LEN);
 
         publisherLogger = (Logger) LoggerFactory.getLogger(DeadLetterPublisher.class);
         logAppender = new ListAppender<>();
@@ -112,6 +114,22 @@ class DeadLetterPublisherTest {
     }
 
     @Nested
+    @DisplayName("DLQ 상한 — MAXLEN 정확 트리밍 (TECHSPEC §5.1)")
+    class BoundedLength {
+
+        @Test
+        @DisplayName("XADD가 설정된 상한의 MAXLEN을 싣고, 근사(~) 트리밍이 아니다")
+        void addsWithExactMaxLen() {
+            transfer(DeadLetterPublisher.Reason.MAX_DELIVERY_EXCEEDED);
+
+            XAddOptions options = capturedOptions();
+
+            assertThat(options.getMaxlen()).isEqualTo(DLQ_MAX_LEN);
+            assertThat(options.isApproximateTrimming()).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("AC-9 단언 ⑤ — 이관 후 원본 확인응답")
     class AcknowledgeAfterTransfer {
 
@@ -129,7 +147,7 @@ class DeadLetterPublisherTest {
             transfer(DeadLetterPublisher.Reason.MAX_DELIVERY_EXCEEDED);
 
             InOrder order = inOrder(streamOperations);
-            order.verify(streamOperations).add(any(MapRecord.class));
+            order.verify(streamOperations).add(any(MapRecord.class), any(XAddOptions.class));
             order.verify(streamOperations).acknowledge(anyString(), anyString(), anyString());
         }
     }
@@ -178,15 +196,22 @@ class DeadLetterPublisherTest {
     }
 
     /**
-     * 프로덕션이 실제로 호출하는 오버로드는 {@code add(MapRecord)}다 — {@code add(Record)}로 검증하면 호출되지 않은 것으로 나온다.
-     * Mockito가 default 메서드까지 스텁하므로 {@code add(MapRecord)}의 본문(내부적으로 {@code add(Record)} 위임)이 실행되지
-     * 않기 때문이다.
+     * 프로덕션이 실제로 호출하는 오버로드는 {@code add(MapRecord, XAddOptions)}다 — {@code add(Record, XAddOptions)}로
+     * 검증하면 호출되지 않은 것으로 나온다. Mockito가 default 메서드까지 스텁하므로 {@code add(MapRecord, XAddOptions)}의
+     * 본문(내부적으로 {@code add(Record, XAddOptions)} 위임)이 실행되지 않기 때문이다.
      */
     @SuppressWarnings("unchecked")
     private MapRecord<String, String, String> capturedRecord() {
         ArgumentCaptor<MapRecord<String, String, String>> captor =
                 ArgumentCaptor.forClass(MapRecord.class);
-        verify(streamOperations).add(captor.capture());
+        verify(streamOperations).add(captor.capture(), any(XAddOptions.class));
+        return captor.getValue();
+    }
+
+    @SuppressWarnings("unchecked")
+    private XAddOptions capturedOptions() {
+        ArgumentCaptor<XAddOptions> captor = ArgumentCaptor.forClass(XAddOptions.class);
+        verify(streamOperations).add(any(MapRecord.class), captor.capture());
         return captor.getValue();
     }
 

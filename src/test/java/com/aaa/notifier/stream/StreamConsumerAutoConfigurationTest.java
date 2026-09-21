@@ -103,6 +103,18 @@ class StreamConsumerAutoConfigurationTest {
         }
 
         @Test
+        @DisplayName("dlq-max-len도 외부 키로 바인딩된다 (TECHSPEC §5.1 MAXLEN 외부화)")
+        void dlqMaxLenBinds() {
+            runner.withPropertyValues("notifier.stream.dlq-max-len=42")
+                    .run(
+                            context ->
+                                    assertThat(
+                                                    context.getBean(StreamConsumerProperties.class)
+                                                            .dlqMaxLen())
+                                            .isEqualTo(42L));
+        }
+
+        @Test
         @DisplayName("키를 주지 않으면 기본값이 적용된다 (소스 하드코딩이 아니라 선언된 기본값)")
         void defaultsApplyWhenAbsent() {
             runner.run(
@@ -113,6 +125,7 @@ class StreamConsumerAutoConfigurationTest {
                         assertThat(properties.enabled()).isTrue();
                         assertThat(properties.maxDeliveryCount()).isEqualTo(3);
                         assertThat(properties.blockTimeout()).isEqualTo(Duration.ofSeconds(2));
+                        assertThat(properties.dlqMaxLen()).isEqualTo(500L);
                     });
         }
     }

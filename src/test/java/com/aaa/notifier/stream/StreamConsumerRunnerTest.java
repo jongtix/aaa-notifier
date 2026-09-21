@@ -57,7 +57,8 @@ class StreamConsumerRunnerTest {
                         10,
                         Duration.ofSeconds(60),
                         3,
-                        Duration.ofMillis(50));
+                        Duration.ofMillis(50),
+                        500);
         List<StreamConsumerWorker> workers =
                 Arrays.stream(ConsumedStream.values())
                         .map(
