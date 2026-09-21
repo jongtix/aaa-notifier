@@ -14,6 +14,8 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -128,6 +130,56 @@ class StreamConsumerAutoConfigurationTest {
                         assertThat(properties.claimIdleThreshold())
                                 .isEqualTo(Duration.ofSeconds(30));
                         assertThat(properties.dlqMaxLen()).isEqualTo(500L);
+                    });
+        }
+    }
+
+    @Nested
+    @DisplayName("dlq-max-len 검증 — 0 이하는 기동 실패로 드러낸다")
+    class DlqMaxLenValidation {
+
+        /**
+         * DLQ 상한이 0 이하면 {@code XADD ... MAXLEN}이 DLQ 전체를 트리밍하고, 원본은 이미 확인응답되어 poison 메시지가 조용히 사라진다.
+         * 잘못된 설정은 운영 중이 아니라 기동 시점에 드러나야 한다.
+         */
+        @ParameterizedTest(name = "dlq-max-len={0}")
+        @ValueSource(strings = {"0", "-1", "-500"})
+        @DisplayName("0 이하 값은 프로퍼티 이름과 잘못된 값을 담은 메시지와 함께 기동에 실패한다")
+        void nonPositiveValue_failsStartup(String value) {
+            runner.withPropertyValues("notifier.stream.dlq-max-len=" + value)
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                assertThat(context.getStartupFailure())
+                                        .rootCause()
+                                        .hasMessageContaining("notifier.stream.dlq-max-len")
+                                        .hasMessageContaining("양수")
+                                        .hasMessageContaining(value);
+                            });
+        }
+
+        @Test
+        @DisplayName("1(경계)은 기동에 성공하고 그대로 바인딩된다")
+        void one_isAccepted() {
+            runner.withPropertyValues("notifier.stream.dlq-max-len=1")
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThat(
+                                                context.getBean(StreamConsumerProperties.class)
+                                                        .dlqMaxLen())
+                                        .isEqualTo(1L);
+                            });
+        }
+
+        @Test
+        @DisplayName("키를 주지 않으면 기본값 500으로 기동에 성공한다")
+        void absentKey_startsWithDefault() {
+            runner.run(
+                    context -> {
+                        assertThat(context).hasNotFailed();
+                        assertThat(context.getBean(StreamConsumerProperties.class).dlqMaxLen())
+                                .isEqualTo(500L);
                     });
         }
     }
