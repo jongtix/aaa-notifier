@@ -1,6 +1,6 @@
 # === Build stage ===
 # digest pin: 이미지 변경 시 docker manifest inspect로 AMD64 digest 재조회 필요
-FROM eclipse-temurin:21-jdk-alpine@sha256:6ea5548706b60ac0a602eaf48af74792cbab012d90e811ca8db6184b16b5c3d6 AS build
+FROM eclipse-temurin:21-jdk-alpine@sha256:cd87715a8d45cfaa42419207c64680234f62785c49055cccd20437b5c9018380 AS build
 WORKDIR /notifier
 
 # 릴리스 태그 버전 주입 (docker.yml build-args) — 기본값은 로컬 빌드용
@@ -19,7 +19,7 @@ RUN ./gradlew build -x check --no-daemon -Pversion=${VERSION}
 
 # === Runtime stage ===
 # digest pin: 이미지 변경 시 docker manifest inspect로 AMD64 digest 재조회 필요
-FROM eclipse-temurin:21-jre-alpine@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699
+FROM eclipse-temurin:21-jre-alpine@sha256:1a29e1fe337eb28b5bec30f0ee8ed29f0ff80ab6f75dcf9313efe82911065a52
 
 # 비루트 유저 생성 + 로그/힙덤프 디렉토리 준비 (read_only 컨테이너에서 notifier 유저 쓰기 권한 보장)
 # UID/GID 1006 — collector(1004)·analyzer(1005)와 비충돌 (REQ-NOTIFIER-FOUNDATION-020, 2026-07-05 확정)
