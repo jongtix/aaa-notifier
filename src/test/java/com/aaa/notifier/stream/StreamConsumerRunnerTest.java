@@ -1,20 +1,29 @@
 package com.aaa.notifier.stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.PendingMessages;
 import org.springframework.data.redis.connection.stream.StreamOffset;
@@ -115,5 +124,63 @@ class StreamConsumerRunnerTest {
         runner.stop();
         runner.stop();
         assertThat(runner.isRunning()).isFalse();
+    }
+
+    @Nested
+    @DisplayName("C1 — 워커 스레드가 처리되지 않은 예외로 죽어도 조용히 사라지지 않는다")
+    class WorkerFailureLogging {
+
+        private Logger runnerLogger;
+        private ListAppender<ILoggingEvent> logAppender;
+
+        @BeforeEach
+        void attachAppender() {
+            runnerLogger = (Logger) LoggerFactory.getLogger(StreamConsumerRunner.class);
+            logAppender = new ListAppender<>();
+            logAppender.start();
+            runnerLogger.addAppender(logAppender);
+        }
+
+        @AfterEach
+        void detachAppender() {
+            runnerLogger.detachAppender(logAppender);
+        }
+
+        @Test
+        @DisplayName("DataAccessException이 아닌 예외가 run()을 벗어나면 ERROR 로그에 스트림 식별자가 남는다")
+        void nonDataAccessException_isLoggedAtErrorWithStreamIdentity() {
+            StreamConsumerWorker failingWorker = mock(StreamConsumerWorker.class);
+            when(failingWorker.streamKey()).thenReturn(ConsumedStream.SIGNAL_DOMESTIC.getKey());
+            doThrow(new IllegalStateException("파서 버그 시뮬레이션")).when(failingWorker).run();
+
+            StreamConsumerRunner singleWorkerRunner =
+                    new StreamConsumerRunner(redisTemplate, List.of(failingWorker));
+            singleWorkerRunner.start();
+            try {
+                await().atMost(Duration.ofSeconds(2))
+                        .untilAsserted(
+                                () ->
+                                        assertThat(logAppender.list)
+                                                .anySatisfy(
+                                                        event -> {
+                                                            assertThat(event.getLevel())
+                                                                    .isEqualTo(Level.ERROR);
+                                                            assertThat(event.getFormattedMessage())
+                                                                    .contains(
+                                                                            ConsumedStream
+                                                                                    .SIGNAL_DOMESTIC
+                                                                                    .getKey());
+                                                            assertThat(
+                                                                            event.getThrowableProxy()
+                                                                                    .getClassName())
+                                                                    .isEqualTo(
+                                                                            IllegalStateException
+                                                                                    .class
+                                                                                    .getName());
+                                                        }));
+            } finally {
+                singleWorkerRunner.stop();
+            }
+        }
     }
 }

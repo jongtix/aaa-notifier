@@ -129,6 +129,11 @@ public class StreamConsumerWorker implements Runnable {
         running.set(false);
     }
 
+    /** 이 워커가 담당하는 스트림 키 — 러너가 {@link #run()}을 벗어난 예외를 로그에 귀속시킬 때 쓴다. */
+    public String streamKey() {
+        return stream.getKey();
+    }
+
     /**
      * 1회차를 수행한다 — 판독 → 재소유 → 신규 읽기.
      *
