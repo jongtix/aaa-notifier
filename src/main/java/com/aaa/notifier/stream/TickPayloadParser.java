@@ -295,11 +295,24 @@ public class TickPayloadParser {
     /** KIS 실시간 트랜잭션 ID별 레코드 계약 (REQ-032 표, {@code api-specs/kis/ws-01}~{@code ws-04} 실측). */
     @Getter
     private enum TickTransactionId {
-        /** 국내 체결 — 46필드. */
-        H0STCNT0(46, Kind.TRADE, Market.DOMESTIC),
+        /**
+         * 국내 체결 — 47필드.
+         *
+         * <p><b>[2026-09-22 정정]</b> 원안(2026-06-23 api-specs 실측)은 46필드였으나, 프로덕션 DLQ 원본 페이로드 재대조 결과
+         * KIS가 문서화된 46필드({@code MKSC_SHRN_ISCD}~{@code ABCD_MNPRC}) 뒤에 미확인 트레일링 필드 1개를 추가로
+         * 보낸다(index 46, 실측 전부 {@code 2}) — 이 정정 전에는 국내 체결 트래픽 전량이 배치 분할 나눗셈에서 실패해 DLQ로 이관되고 있었다.
+         * {@code TradeFieldLayout.DOMESTIC}은 index 0~13만 참조하므로 필드 인덱스 매핑 자체는 영향받지 않는다 — 깨진 것은 이 나눗셈
+         * 상수뿐이다.
+         */
+        H0STCNT0(47, Kind.TRADE, Market.DOMESTIC),
 
-        /** 국내 호가 — 62필드, 패스스루. */
-        H0STASP0(62, Kind.QUOTE, Market.DOMESTIC),
+        /**
+         * 국내 호가 — 63필드, 패스스루.
+         *
+         * <p><b>[2026-09-22 정정]</b> {@code H0STCNT0}와 동일 사유로 62→63 정정 (실측: 프로덕션 DLQ {@code
+         * payload_unparseable} 로그 {@code total=63, perRecord=62}). 패스스루라 신규 필드의 이름·의미는 불필요.
+         */
+        H0STASP0(63, Kind.QUOTE, Market.DOMESTIC),
 
         /** 해외 체결 — 26필드. */
         HDFSCNT0(26, Kind.TRADE, Market.OVERSEAS),

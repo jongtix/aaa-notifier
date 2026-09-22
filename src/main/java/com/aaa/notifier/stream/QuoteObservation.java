@@ -5,8 +5,9 @@ import java.util.Objects;
 /**
  * 호가 패스스루 관측치 (REQ-NOTIFIER-CONSUMER-032, plan.md §B.2).
  *
- * <p>호가 레코드(국내 {@code H0STASP0} 62필드 / 해외 {@code HDFSASP0} 71필드)는 <b>필드 단위로 해석하지 않는다</b> — 소비 규칙이
- * 아직 정의되지 않았기 때문이며(spec.md HISTORY [D-C3]), {@link #rawRecord()}에 원시 문자열을 그대로 실어 FILTER-001로 넘긴다.
+ * <p>호가 레코드(국내 {@code H0STASP0} 63필드, 2026-09-22 정정 — 원안 62필드 / 해외 {@code HDFSASP0} 71필드)는 <b>필드
+ * 단위로 해석하지 않는다</b> — 소비 규칙이 아직 정의되지 않았기 때문이며(spec.md HISTORY [D-C3]), {@link #rawRecord()}에 원시 문자열을
+ * 그대로 실어 FILTER-001로 넘긴다.
  *
  * <p>정규 심볼은 레코드 선두(국내 {@code [0]}, 해외 {@code [1]})에서 취한다 — 체결 레코드와 동일한 심볼 위치 규칙이며, 호가 고유 필드(레벨별
  * 호가·잔량)를 해석하는 것이 아니다.
