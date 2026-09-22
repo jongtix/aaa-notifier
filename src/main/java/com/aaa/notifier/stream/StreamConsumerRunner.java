@@ -2,9 +2,6 @@ package com.aaa.notifier.stream;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
@@ -44,7 +41,7 @@ public class StreamConsumerRunner implements SmartLifecycle {
     private final List<StreamConsumerWorker> workers;
     private final AtomicBoolean running = new AtomicBoolean();
 
-    private ExecutorService executor;
+    private List<Thread> workerThreads;
 
     public StreamConsumerRunner(
             StringRedisTemplate redisTemplate, List<StreamConsumerWorker> workers) {
@@ -60,9 +57,35 @@ public class StreamConsumerRunner implements SmartLifecycle {
         for (ConsumedStream stream : ConsumedStream.values()) {
             ensureGroup(stream);
         }
-        executor = Executors.newVirtualThreadPerTaskExecutor();
-        workers.forEach(executor::submit);
+        workerThreads = workers.stream().map(this::startWorkerThread).toList();
         log.info("[stream-consumer] 소비 단위 {}개 기동 완료", workers.size());
+    }
+
+    /**
+     * 워커 전용 가상 스레드를 이름 붙여 기동한다.
+     *
+     * <p>{@code ExecutorService.submit(Runnable)}은 태스크가 던진 예외를 아무도 읽지 않는 {@code Future}에 담아 삼킨다 —
+     * {@code DataAccessException}이 아닌 예외(예: 파서 결함으로 인한 {@code NullPointerException})가 {@link
+     * StreamConsumerWorker#run()}을 벗어나면 스레드가 로그 한 줄 없이 조용히 끝났다. 대신 워커별로 이름 붙인 가상 스레드를 직접 기동하고
+     * {@code uncaughtExceptionHandler}를 달아, 벗어나는 예외를 ERROR로 관측 가능하게 만든다. {@code
+     * catch(RuntimeException)}으로 감싸지 않는 이유는 PMD {@code AvoidCatchingGenericException} 때문이다 — {@link
+     * StreamConsumerWorker#attemptDelivery}가 {@code catch(Exception)} 대신 {@code CompletableFuture}로
+     * 결과를 수거하는 것과 같은 제약이다.
+     *
+     * <p>{@code DataAccessException}은 이 핸들러까지 오지 않는다 — {@link StreamConsumerWorker#run()}이 자체 백오프
+     * 재시도로 이미 흡수하기 때문이다. 여기까지 벗어나는 예외는 전부 그 경로 밖의 실제 결함이다. {@link Error}는 별도 처리 없이 JVM 기본 동작(스택
+     * 트레이스 출력 후 스레드 종료)을 따른다.
+     */
+    private Thread startWorkerThread(StreamConsumerWorker worker) {
+        return Thread.ofVirtual()
+                .name("stream-consumer-" + worker.streamKey())
+                .uncaughtExceptionHandler(
+                        (thread, exception) ->
+                                log.error(
+                                        "[stream-consumer] 워커 스레드가 처리되지 않은 예외로 종료됐다 stream={}",
+                                        worker.streamKey(),
+                                        exception))
+                .start(worker);
     }
 
     @Override
@@ -71,19 +94,33 @@ public class StreamConsumerRunner implements SmartLifecycle {
             return;
         }
         workers.forEach(StreamConsumerWorker::stop);
-        if (executor == null) {
+        if (workerThreads == null) {
             return;
         }
         // 진행 중인 블로킹 읽기를 인터럽트로 깨운다 — blockTimeout 만료를 기다리면 종료가 느려진다.
-        executor.shutdownNow();
-        try {
-            if (!executor.awaitTermination(SHUTDOWN_WAIT.toMillis(), TimeUnit.MILLISECONDS)) {
-                log.warn("[stream-consumer] 소비 스레드가 {} 안에 정리되지 않았다", SHUTDOWN_WAIT);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        workerThreads.forEach(Thread::interrupt);
+        awaitTermination();
         log.info("[stream-consumer] 소비 단위 종료 완료");
+    }
+
+    /** 워커 스레드 전부가 {@link #SHUTDOWN_WAIT} 안에 끝나는지 기다린다 — 개별이 아니라 전체에 대한 공동 상한이다. */
+    private void awaitTermination() {
+        long deadlineNanos = System.nanoTime() + SHUTDOWN_WAIT.toNanos();
+        for (Thread thread : workerThreads) {
+            long remainingMillis = Math.max(0, (deadlineNanos - System.nanoTime()) / 1_000_000);
+            try {
+                thread.join(remainingMillis);
+                if (thread.isAlive()) {
+                    log.warn(
+                            "[stream-consumer] 소비 스레드가 {} 안에 정리되지 않았다 stream={}",
+                            SHUTDOWN_WAIT,
+                            thread.getName());
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 
     @Override
