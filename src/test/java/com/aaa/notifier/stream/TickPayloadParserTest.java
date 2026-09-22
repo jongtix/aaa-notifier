@@ -28,13 +28,14 @@ class TickPayloadParserTest {
     class MeasuredFrameContract {
 
         @Test
-        @DisplayName("ws-01 국내 체결 레코드는 46필드이고 [44]는 빈 값이다 (엣지케이스 E1)")
-        void domesticRecord_has46Fields_withEmptyIndex44() {
+        @DisplayName("ws-01 국내 체결 레코드는 47필드이고 [44]는 빈 값, [46]은 2026-09-22 정정 트레일링 필드다 (엣지케이스 E1)")
+        void domesticRecord_has47Fields_withEmptyIndex44AndCorrectedTrailingField() {
             String[] fields = KisFrameFixtures.split(KisFrameFixtures.DOMESTIC_TRADE_RECORD);
 
             assertThat(fields).hasSize(KisFrameFixtures.DOMESTIC_TRADE_FIELD_COUNT);
             assertThat(fields[44]).isEmpty();
             assertThat(fields[45]).isEqualTo("322000");
+            assertThat(fields[46]).isEqualTo("2");
         }
 
         @Test
@@ -45,6 +46,67 @@ class TickPayloadParserTest {
             assertThat(fields).hasSize(KisFrameFixtures.OVERSEAS_TRADE_FIELD_COUNT);
             assertThat(fields[1]).isEqualTo("AAPL");
             assertThat(fields[2]).isEqualTo("4");
+        }
+    }
+
+    /**
+     * 국내 tick 페이로드 실측 필드 수 정정 회귀 테스트 (2026-09-22).
+     *
+     * <p>프로덕션 DLQ({@code stream:dlq:stream:tick:domestic}) 원본 페이로드를 실측한 결과 {@code H0STCNT0}는 46이 아닌
+     * 47필드, {@code H0STASP0}는 62가 아닌 63필드였다 — 이 불일치로 국내 tick/quote 트래픽 전량이 배치 분할 나눗셈 단계에서 {@link
+     * PayloadUnparseableException}로 DLQ 이관되고 있었다. 필드 인덱스 매핑({@code TradeFieldLayout.DOMESTIC})은
+     * index 0~13만 참조하므로 정정 전에도 깨지지 않았다 — 깨진 것은 {@code TickTransactionId.fieldsPerRecord} 나눗셈 상수뿐이다.
+     */
+    @Nested
+    @DisplayName("국내 실측 필드 수 정정 회귀 (2026-09-22 — 46/62 → 47/63)")
+    class FieldCountCorrectionRegression {
+
+        @Test
+        @DisplayName("국내 체결 47필드 레코드가 정상 파싱되고 체결가·체결량·누적거래량·체결시각·심볼이 실측값과 일치한다")
+        void domesticTrade_parsesWith47FieldRecord_andExtractsMeasuredValues() {
+            Map<String, String> entry =
+                    KisFrameFixtures.tickEntry(
+                            "005930",
+                            "H0STCNT0",
+                            KisFrameFixtures.DOMESTIC_TRADE_RECORD,
+                            KisFrameFixtures.TRACE_ID);
+
+            List<TickObservation> observations = parser.parse(ConsumedStream.TICK_DOMESTIC, entry);
+
+            assertThat(observations).hasSize(1);
+            TradeTickObservation trade = tradesOf(observations).getFirst();
+            assertThat(trade)
+                    .extracting(
+                            TradeTickObservation::symbol,
+                            TradeTickObservation::price,
+                            TradeTickObservation::volume,
+                            TradeTickObservation::accumulatedVolume,
+                            TradeTickObservation::tradeTime)
+                    .containsExactly(
+                            "005930",
+                            new BigDecimal("313000"),
+                            825L,
+                            34_502_265L,
+                            LocalTime.of(15, 14, 25));
+        }
+
+        @Test
+        @DisplayName("국내 호가 63필드 레코드가 정상 파싱되고 원시 63필드를 바이트 동등하게 보존한다 (패스스루)")
+        void domesticQuote_parsesWith63FieldRecord_andPreservesAllFields() {
+            String record =
+                    KisFrameFixtures.syntheticRecord(
+                            "005930", KisFrameFixtures.DOMESTIC_QUOTE_FIELD_COUNT);
+            Map<String, String> entry =
+                    KisFrameFixtures.tickEntry(
+                            "005930", "H0STASP0", record, KisFrameFixtures.TRACE_ID);
+
+            List<TickObservation> observations = parser.parse(ConsumedStream.TICK_DOMESTIC, entry);
+
+            assertThat(observations).hasSize(1);
+            assertThat(observations.getFirst()).isInstanceOf(QuoteObservation.class);
+            QuoteObservation quote = (QuoteObservation) observations.getFirst();
+            assertThat(quote.rawRecord()).isEqualTo(record);
+            assertThat(KisFrameFixtures.split(quote.rawRecord())).hasSize(63);
         }
     }
 
@@ -123,9 +185,9 @@ class TickPayloadParserTest {
         @Test
         @DisplayName("E1 — 후행 빈 필드가 있는 배치도 분할이 정확하다 (split limit -1 강제)")
         void batchWithTrailingEmptyField_splitsCorrectly() {
-            // Arrange — [45] ABCD_MNPRC를 빈 값으로 만들어 레코드가 빈 필드로 끝나게 한다.
+            // Arrange — [46](2026-09-22 정정 트레일링 필드, 현재 레코드 최후미)를 빈 값으로 만들어 레코드가 빈 필드로 끝나게 한다.
             String recordEndingEmpty =
-                    KisFrameFixtures.withField(KisFrameFixtures.DOMESTIC_TRADE_RECORD, 45, "");
+                    KisFrameFixtures.withField(KisFrameFixtures.DOMESTIC_TRADE_RECORD, 46, "");
             String data = KisFrameFixtures.batch(recordEndingEmpty, 2, 12, 313_000L, 825L, 3);
             Map<String, String> entry =
                     KisFrameFixtures.tickEntry(
@@ -134,7 +196,7 @@ class TickPayloadParserTest {
             // Act
             List<TickObservation> observations = parser.parse(ConsumedStream.TICK_DOMESTIC, entry);
 
-            // Assert — limit 없는 split이면 마지막 빈 필드가 버려져 137필드가 되고 46으로 나누어떨어지지 않아 예외가 난다.
+            // Assert — limit 없는 split이면 마지막 빈 필드가 버려져 140필드가 되고 47로 나누어떨어지지 않아 예외가 난다.
             assertThat(observations).hasSize(3);
         }
     }
@@ -144,7 +206,7 @@ class TickPayloadParserTest {
     class QuotePassthrough {
 
         @Test
-        @DisplayName("① 국내 호가 62필드 엔트리는 원시 문자열을 바이트 동등하게 싣는다")
+        @DisplayName("① 국내 호가 63필드 엔트리는 원시 문자열을 바이트 동등하게 싣는다")
         void domesticQuote_carriesRawRecordVerbatim() {
             String record =
                     KisFrameFixtures.syntheticRecord(
