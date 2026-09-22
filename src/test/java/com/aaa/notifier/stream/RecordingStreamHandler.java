@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -22,6 +23,8 @@ final class RecordingStreamHandler implements StreamObservationHandler {
     private final Set<Thread> deliveryThreadSet = ConcurrentHashMap.newKeySet();
     private final AtomicInteger signalAttemptCount = new AtomicInteger();
     private final AtomicReference<String> failingSignalSymbol = new AtomicReference<>();
+    private final AtomicReference<String> failOnceSignalSymbol = new AtomicReference<>();
+    private final AtomicBoolean failOnceConsumed = new AtomicBoolean();
 
     @Override
     public void onTradeTick(TradeTickObservation observation) {
@@ -41,6 +44,10 @@ final class RecordingStreamHandler implements StreamObservationHandler {
         signalAttemptCount.incrementAndGet();
         if (observation.symbol().equals(failingSignalSymbol.get())) {
             throw new IllegalStateException("주입된 하류 실패 symbol=" + observation.symbol());
+        }
+        if (observation.symbol().equals(failOnceSignalSymbol.get())
+                && !failOnceConsumed.getAndSet(true)) {
+            throw new IllegalStateException("주입된 1회성 하류 실패 symbol=" + observation.symbol());
         }
         signalLog.add(observation);
     }
@@ -70,6 +77,12 @@ final class RecordingStreamHandler implements StreamObservationHandler {
         failingSignalSymbol.set(symbol);
     }
 
+    /** 해당 심볼의 신호는 최초 1회 호출에서만 예외를 던지고, 그 이후 호출(재전달)부터는 정상 처리한다(AC-7). */
+    void failFirstSignalAttemptOf(String symbol) {
+        failOnceSignalSymbol.set(symbol);
+        failOnceConsumed.set(false);
+    }
+
     void clear() {
         tradeLog.clear();
         quoteLog.clear();
@@ -77,5 +90,7 @@ final class RecordingStreamHandler implements StreamObservationHandler {
         deliveryThreadSet.clear();
         signalAttemptCount.set(0);
         failingSignalSymbol.set(null);
+        failOnceSignalSymbol.set(null);
+        failOnceConsumed.set(false);
     }
 }
