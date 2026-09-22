@@ -296,7 +296,12 @@ public class StreamConsumerWorker implements Runnable {
         return Optional.of(cause);
     }
 
-    /** 관측치를 하류 포트로 <b>동기</b> 전달한다 — 확인응답 이전이어야 at-least-once가 성립한다(REQ-051). */
+    /**
+     * 관측치를 하류 포트로 <b>동기</b> 전달한다 — 확인응답 이전이어야 at-least-once가 성립한다(REQ-051).
+     *
+     * <p>엔트리 1건이 관측치 여러 건으로 파싱되는 틱 배치 프레임에서, 중간 관측치 처리 중 예외가 나면 엔트리 전체가 미확인으로 남아 재소유 시 처음부터 다시 전달된다
+     * — 재전달 단위는 엔트리이지 관측치가 아니다({@link StreamObservationHandler} 계약 참조).
+     */
     private void deliver(Map<String, String> fields) {
         if (stream.getPayloadKind() == ConsumedStream.PayloadKind.SIGNAL) {
             handler.onSignal(signalParser.parse(fields));
