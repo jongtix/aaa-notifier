@@ -14,11 +14,13 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * _CLAIM_BATCH_SIZE}와 동일 취지), 설정 표면을 늘리면 실제로 조정해야 하는 여섯 값이 묻힌다.
  *
  * @param enabled 소비 활성화 플래그. {@code false}면 그룹 생성도 소비 스레드 기동도 하지 않는다(기동 자체는 성공한다)
- * @param blockTimeout {@code XREADGROUP} 블로킹 대기 시간. 종료 신호에 대한 반응 지연의 상한이기도 하다
- * @param readBatchSize {@code XREADGROUP} 1회 읽기 건수
- * @param claimIdleThreshold 재소유 유휴 임계 — 이 시간을 넘게 미확인인 메시지가 재소유 대상이다
- * @param maxDeliveryCount DLQ 재전달 임계. 이 값을 <b>초과</b>하면 이관한다(기본 3 → 4회째가 이관 대상)
- * @param errorBackoff 일시적 오류 후 재시도까지의 대기 시간
+ * @param blockTimeout {@code XREADGROUP} 블로킹 대기 시간. 종료 신호에 대한 반응 지연의 상한이기도 하다. 음수면 기동 시점에 실패한다 — 0은
+ *     허용된다({@code BLOCK 0} = 무기한 대기, {@code spring.data.redis.timeout}이 실질 상한이다)
+ * @param readBatchSize {@code XREADGROUP} 1회 읽기 건수. 0 이하면 기동 시점에 실패한다
+ * @param claimIdleThreshold 재소유 유휴 임계 — 이 시간을 넘게 미확인인 메시지가 재소유 대상이다. 0 이하면 기동 시점에 실패한다 — 그렇지 않으면 모든
+ *     미확인 메시지가 즉시 재소유 대상이 되어 이 값의 의미가 성립하지 않는다
+ * @param maxDeliveryCount DLQ 재전달 임계. 이 값을 <b>초과</b>하면 이관한다(기본 3 → 4회째가 이관 대상). 0 이하면 기동 시점에 실패한다
+ * @param errorBackoff 일시적 오류 후 재시도까지의 대기 시간. 음수면 기동 시점에 실패한다 — 0은 즉시 재시도를 의미하며 허용된다
  * @param dlqMaxLen DLQ({@code stream:dlq:{stream명}}) 길이 상한. 초과분은 가장 오래된 항목부터 <b>정확 트리밍</b>으로 밀려난다
  *     (TECHSPEC §5.1). 0 이하면 기동 시점에 실패한다 — {@code XADD ... MAXLEN}이 DLQ 전체를 트리밍하는데 원본은 이미 확인응답된 뒤라
  *     poison 메시지가 조용히 사라지기 때문이다
@@ -34,6 +36,28 @@ public record StreamConsumerProperties(
         @DefaultValue("500") long dlqMaxLen) {
 
     public StreamConsumerProperties {
+        if (blockTimeout.isNegative()) {
+            throw new IllegalArgumentException(
+                    "notifier.stream.block-timeout은 음수일 수 없다 (현재 값: " + blockTimeout + ")");
+        }
+        if (readBatchSize <= 0) {
+            throw new IllegalArgumentException(
+                    "notifier.stream.read-batch-size는 양수여야 한다 (현재 값: " + readBatchSize + ")");
+        }
+        if (claimIdleThreshold.isZero() || claimIdleThreshold.isNegative()) {
+            throw new IllegalArgumentException(
+                    "notifier.stream.claim-idle-threshold는 양수여야 한다 (현재 값: "
+                            + claimIdleThreshold
+                            + ")");
+        }
+        if (maxDeliveryCount <= 0) {
+            throw new IllegalArgumentException(
+                    "notifier.stream.max-delivery-count는 양수여야 한다 (현재 값: " + maxDeliveryCount + ")");
+        }
+        if (errorBackoff.isNegative()) {
+            throw new IllegalArgumentException(
+                    "notifier.stream.error-backoff은 음수일 수 없다 (현재 값: " + errorBackoff + ")");
+        }
         if (dlqMaxLen <= 0) {
             throw new IllegalArgumentException(
                     "notifier.stream.dlq-max-len은 양수여야 한다 (현재 값: " + dlqMaxLen + ")");

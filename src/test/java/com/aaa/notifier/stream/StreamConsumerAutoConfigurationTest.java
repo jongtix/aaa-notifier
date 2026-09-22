@@ -185,6 +185,179 @@ class StreamConsumerAutoConfigurationTest {
     }
 
     @Nested
+    @DisplayName("read-batch-size 검증 — 0 이하는 기동 실패로 드러낸다 (C2/W1)")
+    class ReadBatchSizeValidation {
+
+        @ParameterizedTest(name = "read-batch-size={0}")
+        @ValueSource(strings = {"0", "-1", "-500"})
+        @DisplayName("0 이하 값은 프로퍼티 이름과 잘못된 값을 담은 메시지와 함께 기동에 실패한다")
+        void nonPositiveValue_failsStartup(String value) {
+            runner.withPropertyValues("notifier.stream.read-batch-size=" + value)
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                assertThat(context.getStartupFailure())
+                                        .rootCause()
+                                        .hasMessageContaining("notifier.stream.read-batch-size")
+                                        .hasMessageContaining("양수")
+                                        .hasMessageContaining(value);
+                            });
+        }
+
+        @Test
+        @DisplayName("1(경계)은 기동에 성공하고 그대로 바인딩된다")
+        void one_isAccepted() {
+            runner.withPropertyValues("notifier.stream.read-batch-size=1")
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThat(
+                                                context.getBean(StreamConsumerProperties.class)
+                                                        .readBatchSize())
+                                        .isEqualTo(1);
+                            });
+        }
+    }
+
+    @Nested
+    @DisplayName("block-timeout 검증 — 음수는 기동 실패로 드러낸다 (C2/W1)")
+    class BlockTimeoutValidation {
+
+        @ParameterizedTest(name = "block-timeout={0}")
+        @ValueSource(strings = {"-1s", "-500ms"})
+        @DisplayName("음수 값은 프로퍼티 이름과 잘못된 값을 담은 메시지와 함께 기동에 실패한다")
+        void negativeValue_failsStartup(String value) {
+            runner.withPropertyValues("notifier.stream.block-timeout=" + value)
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                assertThat(context.getStartupFailure())
+                                        .rootCause()
+                                        .hasMessageContaining("notifier.stream.block-timeout")
+                                        .hasMessageContaining("음수");
+                            });
+        }
+
+        @Test
+        @DisplayName("0(경계)은 기동에 성공한다 — Redis BLOCK 0 의미로 허용된다")
+        void zero_isAccepted() {
+            runner.withPropertyValues("notifier.stream.block-timeout=0s")
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThat(
+                                                context.getBean(StreamConsumerProperties.class)
+                                                        .blockTimeout())
+                                        .isEqualTo(Duration.ZERO);
+                            });
+        }
+    }
+
+    @Nested
+    @DisplayName("claim-idle-threshold 검증 — 0 이하는 기동 실패로 드러낸다 (C2/W1)")
+    class ClaimIdleThresholdValidation {
+
+        @ParameterizedTest(name = "claim-idle-threshold={0}")
+        @ValueSource(strings = {"0s", "-1s"})
+        @DisplayName("0 이하 값은 프로퍼티 이름과 잘못된 값을 담은 메시지와 함께 기동에 실패한다")
+        void nonPositiveValue_failsStartup(String value) {
+            runner.withPropertyValues("notifier.stream.claim-idle-threshold=" + value)
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                assertThat(context.getStartupFailure())
+                                        .rootCause()
+                                        .hasMessageContaining(
+                                                "notifier.stream.claim-idle-threshold")
+                                        .hasMessageContaining("양수");
+                            });
+        }
+
+        @Test
+        @DisplayName("1ms(경계)는 기동에 성공하고 그대로 바인딩된다")
+        void onePositiveMillis_isAccepted() {
+            runner.withPropertyValues("notifier.stream.claim-idle-threshold=1ms")
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThat(
+                                                context.getBean(StreamConsumerProperties.class)
+                                                        .claimIdleThreshold())
+                                        .isEqualTo(Duration.ofMillis(1));
+                            });
+        }
+    }
+
+    @Nested
+    @DisplayName("max-delivery-count 검증 — 0 이하는 기동 실패로 드러낸다 (C2/W1)")
+    class MaxDeliveryCountValidation {
+
+        @ParameterizedTest(name = "max-delivery-count={0}")
+        @ValueSource(strings = {"0", "-1", "-500"})
+        @DisplayName("0 이하 값은 프로퍼티 이름과 잘못된 값을 담은 메시지와 함께 기동에 실패한다")
+        void nonPositiveValue_failsStartup(String value) {
+            runner.withPropertyValues("notifier.stream.max-delivery-count=" + value)
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                assertThat(context.getStartupFailure())
+                                        .rootCause()
+                                        .hasMessageContaining("notifier.stream.max-delivery-count")
+                                        .hasMessageContaining("양수")
+                                        .hasMessageContaining(value);
+                            });
+        }
+
+        @Test
+        @DisplayName("1(경계)은 기동에 성공하고 그대로 바인딩된다")
+        void one_isAccepted() {
+            runner.withPropertyValues("notifier.stream.max-delivery-count=1")
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThat(
+                                                context.getBean(StreamConsumerProperties.class)
+                                                        .maxDeliveryCount())
+                                        .isEqualTo(1);
+                            });
+        }
+    }
+
+    @Nested
+    @DisplayName("error-backoff 검증 — 음수는 기동 실패로 드러낸다 (C2/W1)")
+    class ErrorBackoffValidation {
+
+        @ParameterizedTest(name = "error-backoff={0}")
+        @ValueSource(strings = {"-1s", "-500ms"})
+        @DisplayName("음수 값은 프로퍼티 이름과 잘못된 값을 담은 메시지와 함께 기동에 실패한다")
+        void negativeValue_failsStartup(String value) {
+            runner.withPropertyValues("notifier.stream.error-backoff=" + value)
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                assertThat(context.getStartupFailure())
+                                        .rootCause()
+                                        .hasMessageContaining("notifier.stream.error-backoff")
+                                        .hasMessageContaining("음수");
+                            });
+        }
+
+        @Test
+        @DisplayName("0(경계)은 기동에 성공한다 — 즉시 재시도를 의미하며 허용된다")
+        void zero_isAccepted() {
+            runner.withPropertyValues("notifier.stream.error-backoff=0s")
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThat(
+                                                context.getBean(StreamConsumerProperties.class)
+                                                        .errorBackoff())
+                                        .isEqualTo(Duration.ZERO);
+                            });
+        }
+    }
+
+    @Nested
     @DisplayName("AC-16 ① — 무동작 기본 핸들러")
     class DefaultHandler {
 
