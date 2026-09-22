@@ -5,14 +5,7 @@
 # (2026-09-17 aaa-analyzer v0.24.1: 이 절차를 놓치고 태그 이동·빈 커밋으로 우회하다 실패 —
 #  상세는 aaa/.claude/rules/aaa/project-instructions.md § Git Rules)
 
-# CVE-2026-56408 | libexpat HIGH
-# 사유: 상류-지연(upstream-lag) — alpine 저장소에 수정판 2.8.2-r0 게시됨,
-#       eclipse-temurin:21-jre-alpine base 이미지가 아직 재빌드되지 않아 미반영. 레포 내 교정 수단 없음(REQ-CVE-016).
-# 승인: 2026-08-19 (사용자) | 만료: 2026-09-18 (승인일+30일, REQ-CVE-022 기본값)
-CVE-2026-56408 exp:2026-09-18
-
-# CVE-2026-2100 | p11-kit, p11-kit-trust HIGH
-# 사유: 상류-지연(upstream-lag) — alpine 저장소에 수정판 0.26.2-r0 게시됨,
-#       eclipse-temurin:21-jre-alpine base 이미지가 아직 재빌드되지 않아 미반영. 레포 내 교정 수단 없음(REQ-CVE-016).
-# 승인: 2026-08-19 (사용자) | 만료: 2026-09-18 (승인일+30일, REQ-CVE-022 기본값)
-CVE-2026-2100 exp:2026-09-18
+# 2026-09-22: CVE-2026-56408(libexpat)·CVE-2026-2100(p11-kit, p11-kit-trust) 예외 제거.
+# 만료(2026-09-18)된 채로 방치돼 있었으나, v1.1.1 Trivy 스캔에서 alpine 레이어 취약점이
+# 0건으로 확인돼 base 이미지(eclipse-temurin:21-jre-alpine) 쪽에서 이미 해소됐다.
+# 재발하면 그때 새 승인일·만료일로 다시 등록한다.
