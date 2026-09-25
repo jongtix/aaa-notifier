@@ -5,6 +5,13 @@
 # (2026-09-17 aaa-analyzer v0.24.1: 이 절차를 놓치고 태그 이동·빈 커밋으로 우회하다 실패 —
 #  상세는 aaa/.claude/rules/aaa/project-instructions.md § Git Rules)
 
+# [커밋 규약] 보안/CVE 대응 커밋(base 이미지 패키지 타겟 업그레이드, .trivyignore 예외
+# 등록·해제, 의존성 CVE 패치 등)은 반드시 `fix` 타입으로 커밋한다 — `chore`로 커밋하면
+# semantic-release가 릴리스를 만들지 않아 Docker 빌드/Trivy 재스캔/배포가 전혀 트리거되지
+# 않는다(vyc-backend CVE-2026-93990 사례, 2026-09-25: `chore` 커밋으로 main 머지했으나
+# 릴리스 미발생으로 수정이 실제 배포까지 이어지지 못함). Conventional Commits/semantic-release
+# 업계 관행도 동일 — 취약점 제거·완화는 `fix`.
+
 # 2026-09-22: CVE-2026-56408(libexpat)·CVE-2026-2100(p11-kit, p11-kit-trust) 예외 제거.
 # 만료(2026-09-18)된 채로 방치돼 있었으나, v1.1.1 Trivy 스캔에서 alpine 레이어 취약점이
 # 0건으로 확인돼 base 이미지(eclipse-temurin:21-jre-alpine) 쪽에서 이미 해소됐다.
