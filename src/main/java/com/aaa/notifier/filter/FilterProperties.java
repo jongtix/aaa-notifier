@@ -1,6 +1,7 @@
 package com.aaa.notifier.filter;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
@@ -14,14 +15,19 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param enabled 파이프라인 활성화. {@code false}면 소비 계층의 무동작 핸들러가 남는다
  * @param referenceLoad 장전 적재 설정
  * @param band 밴드 판정 설정
+ * @param guard 가드 필터 설정
  */
 @ConfigurationProperties(prefix = "notifier.filter")
 public record FilterProperties(
-        @DefaultValue("true") boolean enabled, ReferenceLoad referenceLoad, Band band) {
+        @DefaultValue("true") boolean enabled,
+        ReferenceLoad referenceLoad,
+        Band band,
+        Guard guard) {
 
     public FilterProperties {
         Objects.requireNonNull(referenceLoad, "notifier.filter.reference-load는 필수다");
         Objects.requireNonNull(band, "notifier.filter.band는 필수다");
+        Objects.requireNonNull(guard, "notifier.filter.guard는 필수다");
     }
 
     /**
@@ -49,6 +55,28 @@ public record FilterProperties(
 
         public Band {
             Objects.requireNonNull(delta, "notifier.filter.band.delta는 필수다");
+        }
+    }
+
+    /**
+     * 가드 3종 (REQ-021/022). 평가 순서는 거래량 → 시간대 → 변동성이다(REQ-024).
+     *
+     * @param volumeRatio [2] 거래량 가드 — 같은 시각까지의 20일 평균 누적 거래량 대비 비율 임계
+     * @param openExclusion [3] 시간대 가드 — 개장 직후 제외 구간
+     * @param closeExclusion [4] 시간대 가드 — 마감 직전 제외 구간
+     * @param atrMultiplier [5] ATR 가드 — 당일 변동폭이 ATR(14)의 이 배수를 넘으면 과열
+     */
+    public record Guard(
+            BigDecimal volumeRatio,
+            Duration openExclusion,
+            Duration closeExclusion,
+            BigDecimal atrMultiplier) {
+
+        public Guard {
+            Objects.requireNonNull(volumeRatio, "notifier.filter.guard.volume-ratio는 필수다");
+            Objects.requireNonNull(openExclusion, "notifier.filter.guard.open-exclusion은 필수다");
+            Objects.requireNonNull(closeExclusion, "notifier.filter.guard.close-exclusion은 필수다");
+            Objects.requireNonNull(atrMultiplier, "notifier.filter.guard.atr-multiplier는 필수다");
         }
     }
 }
