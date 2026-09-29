@@ -2,6 +2,7 @@ package com.aaa.notifier.filter;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ public class FilterMetrics {
 
     static final String REFERENCE_LOAD = "notifier.filter.reference.load";
     static final String REFERENCE_STOCKS = "notifier.filter.reference.stocks";
+    static final String STAGE_COUNTER = "notifier.filter.stage";
 
     private static final String OUTCOME = "outcome";
 
@@ -40,11 +42,56 @@ public class FilterMetrics {
                 .register(registry);
     }
 
+    /**
+     * 파이프라인 단계별 깔때기 카운터 (REQ-071) — {@code notifier_filter_stage_total{stage, outcome}}.
+     *
+     * @param stage 파이프라인 단계
+     * @param outcome 그 단계의 판정 결과
+     */
+    public void stage(Stage stage, Outcome outcome) {
+        registry.counter(STAGE_COUNTER, "stage", stage.tag(), OUTCOME, outcome.tag()).increment();
+    }
+
     /** 장전 적재 1회의 결과를 기록한다. */
     public void referenceLoad(boolean success, int stockCount) {
         registry.counter(REFERENCE_LOAD, OUTCOME, success ? "success" : "failure").increment();
         if (success) {
             loadedStocks.set(stockCount);
+        }
+    }
+
+    /** 파이프라인 단계 (design.md §6 {@code stage} 태그). */
+    public enum Stage {
+        BAND,
+        GUARD_VOLUME,
+        GUARD_TIME,
+        GUARD_ATR,
+        CONFIRM,
+        COOLDOWN,
+        CONFIDENCE;
+
+        String tag() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+    }
+
+    /** 단계 판정 결과 ({@code outcome} 태그). */
+    public enum Outcome {
+        /** 통과. */
+        PASS,
+        /** 차단(억제). */
+        BLOCK,
+        /** 이원 경계 불일치 — 유효 등급 유지(REQ-011). */
+        DEAD_ZONE,
+        /** 유효 등급 전환 감지(REQ-011). */
+        TRANSITION,
+        /** 그리드 밖 가격 클램프(REQ-014). */
+        CLAMPED,
+        /** {@code price.scale() != priceScale} 관측치 제외(REQ-015). */
+        SKIPPED_SCALE_MISMATCH;
+
+        String tag() {
+            return name().toLowerCase(Locale.ROOT);
         }
     }
 }

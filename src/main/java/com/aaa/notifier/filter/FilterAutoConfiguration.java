@@ -1,6 +1,7 @@
 package com.aaa.notifier.filter;
 
 import com.aaa.notifier.stream.StreamConsumerAutoConfiguration;
+import com.aaa.notifier.stream.StreamObservationHandler;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -58,7 +59,7 @@ public class FilterAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public FilterStateStore filterStateStore(StringRedisTemplate redisTemplate) {
-        return new FilterStateStore(redisTemplate);
+        return new RedisFilterStateStore(redisTemplate);
     }
 
     @Bean
@@ -77,5 +78,20 @@ public class FilterAutoConfiguration {
             FilterMetrics metrics,
             Clock clock) {
         return new ReferenceDataRefresher(loader, holder, stateStore, metrics, clock);
+    }
+
+    /**
+     * 소비 계층 하류 포트의 실동작 구현 (REQ-062 — CONSUMER-001 REQ-051의 무동작 기본값을 코드 변경 없이 대체).
+     *
+     * <p>테스트 등에서 다른 {@link StreamObservationHandler}가 이미 등록되어 있으면 물러난다.
+     */
+    @Bean
+    @ConditionalOnMissingBean(StreamObservationHandler.class)
+    public FilterPipeline filterPipeline(
+            ReferenceDataHolder holder,
+            FilterStateStore stateStore,
+            FilterMetrics metrics,
+            Clock clock) {
+        return new FilterPipeline(holder, stateStore, metrics, clock);
     }
 }

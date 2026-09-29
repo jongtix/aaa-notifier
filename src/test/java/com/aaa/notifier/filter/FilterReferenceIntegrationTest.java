@@ -58,7 +58,7 @@ class FilterReferenceIntegrationTest {
     @BeforeEach
     void setUp() {
         FilterDbFixtures.truncate(jdbcTemplate);
-        redisTemplate.delete(FilterStateStore.gradeKey("005930", "D20"));
+        redisTemplate.delete(FilterKeys.grade("005930", "D20"));
         stockId = FilterDbFixtures.insertStock(jdbcTemplate, "005930", "KOSPI");
         FilterDbFixtures.insertFlatOhlcv(jdbcTemplate, stockId, 25, "30000", "100", 1_000_000L);
         FilterDbFixtures.insertBands(
@@ -101,9 +101,9 @@ class FilterReferenceIntegrationTest {
         refresher.onDomesticPreOpen();
 
         // Assert — 전일 종가 30,000: PROMOTE=BUY, DEMOTE=STRONG_BUY → DEMOTE 기준
-        assertThat(redisTemplate.opsForValue().get(FilterStateStore.gradeKey("005930", "D20")))
+        assertThat(redisTemplate.opsForValue().get(FilterKeys.grade("005930", "D20")))
                 .isEqualTo("STRONG_BUY");
-        assertThat(redisTemplate.getExpire(FilterStateStore.gradeKey("005930", "D20")))
+        assertThat(redisTemplate.getExpire(FilterKeys.grade("005930", "D20")))
                 .as("장 마감(15:30)까지 TTL — 10:00 기준 5.5시간")
                 .isBetween(19_000L, 19_800L);
     }
@@ -112,13 +112,13 @@ class FilterReferenceIntegrationTest {
     @DisplayName("AC-2 — 장중 재시작 시 기존 유효 등급을 덮어쓰지 않고 승계한다")
     void restart_inheritsExistingGrade() {
         // Arrange
-        redisTemplate.opsForValue().set(FilterStateStore.gradeKey("005930", "D20"), "HOLD");
+        redisTemplate.opsForValue().set(FilterKeys.grade("005930", "D20"), "HOLD");
 
         // Act
         refresher.onApplicationReady();
 
         // Assert
-        assertThat(redisTemplate.opsForValue().get(FilterStateStore.gradeKey("005930", "D20")))
+        assertThat(redisTemplate.opsForValue().get(FilterKeys.grade("005930", "D20")))
                 .isEqualTo("HOLD");
         assertThat(holder.current().find(Market.DOMESTIC, "005930")).isPresent();
     }

@@ -1,0 +1,70 @@
+package com.aaa.notifier.filter;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.util.Map;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
+
+/** {@link FilterStateStore}의 Redis 구현 — 키 패턴은 {@link FilterKeys}. */
+@RequiredArgsConstructor
+public class RedisFilterStateStore implements FilterStateStore {
+
+    private static final String SIGNAL_CLASS = "signal_class";
+    private static final String SCORE = "score";
+    private static final String CONFIDENCE = "confidence";
+    private static final String TRADE_DATE = "trade_date";
+    private static final String TRACE_ID = "trace_id";
+
+    private final StringRedisTemplate redisTemplate;
+
+    @Override
+    public Optional<Grade> grade(String symbol, String horizon) {
+        return Grade.parse(redisTemplate.opsForValue().get(FilterKeys.grade(symbol, horizon)));
+    }
+
+    @Override
+    public void setGrade(String symbol, String horizon, Grade grade, Duration ttl) {
+        redisTemplate.opsForValue().set(FilterKeys.grade(symbol, horizon), grade.name(), ttl);
+    }
+
+    @Override
+    public boolean initGradeIfAbsent(String symbol, String horizon, Grade grade, Duration ttl) {
+        return Boolean.TRUE.equals(
+                redisTemplate
+                        .opsForValue()
+                        .setIfAbsent(FilterKeys.grade(symbol, horizon), grade.name(), ttl));
+    }
+
+    @Override
+    public Optional<SignalSnapshot> signal(String symbol, String horizon) {
+        Map<Object, Object> fields =
+                redisTemplate.opsForHash().entries(FilterKeys.signal(symbol, horizon));
+        if (fields.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(
+                new SignalSnapshot(
+                        (String) fields.get(SIGNAL_CLASS),
+                        new BigDecimal((String) fields.get(SCORE)),
+                        new BigDecimal((String) fields.get(CONFIDENCE)),
+                        LocalDate.parse((String) fields.get(TRADE_DATE)),
+                        (String) fields.get(TRACE_ID)));
+    }
+
+    @Override
+    public void saveSignal(String symbol, String horizon, SignalSnapshot snapshot) {
+        redisTemplate
+                .opsForHash()
+                .putAll(
+                        FilterKeys.signal(symbol, horizon),
+                        Map.of(
+                                SIGNAL_CLASS, snapshot.signalClass(),
+                                SCORE, snapshot.score().toPlainString(),
+                                CONFIDENCE, snapshot.confidence().toPlainString(),
+                                TRADE_DATE, snapshot.tradeDate().toString(),
+                                TRACE_ID, snapshot.traceId() == null ? "" : snapshot.traceId()));
+    }
+}
