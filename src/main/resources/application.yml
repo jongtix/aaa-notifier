@@ -23,6 +23,23 @@ spring:
       timeout: 5s
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  datasource:
+    # notifier DB 접근 (SPEC-NOTIFIER-FILTER-001 §D) — 장전 cron의 참조 SELECT 3종 + notification_log DRYRUN INSERT만 수행한다.
+    # DDL은 소유하지 않는다(ADR-016 — collector Flyway 소관). JPA·Flyway는 도입하지 않는다(plan.md §D.1).
+    url: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+    username: notifier
+    password: ${MYSQL_NOTIFIER_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 일 1회 배치 SELECT + 결정 빈도의 INSERT만 수행하므로 최소 풀로 충분하다(ADR-027 전 서비스 합산 < max_connections 151, plan.md §D.2).
+      maximum-pool-size: 2
+      minimum-idle: 1
+      # DRYRUN INSERT는 틱 소비 스레드에서 동기 호출되고 최대 3회 시도한다(plan.md §C.3). 커넥션 대기가 길면 DB 장애 시
+      # 틱 처리가 그만큼 묶이므로 짧게 둔다 — 최악 지연 ≈ 3 × 1s.
+      connection-timeout: 1000
+      # 기동 시 DB 연결을 강제하지 않는다 — DB 장애가 기동 실패로 번지지 않게 하고(참조 적재는 WARN 폴백, plan.md §H R3),
+      # 첫 연결 실패가 DataAccessException(CannotGetJdbcConnectionException)으로 변환되도록 한다.
+      initialization-fail-timeout: -1
 
 notifier:
   stream:
@@ -41,6 +58,19 @@ notifier:
     # DLQ(stream:dlq:{stream명}) 길이 상한. TECHSPEC §5.1 — MAXLEN 500, 정확 트리밍(수동 확인 전 보존 대상이라 근사 트리밍을 쓰지 않는다).
     # 환경변수 NOTIFIER_STREAM_DLQ_MAX_LEN으로 재정의할 수 있다(다른 키와 동일하게 Spring relaxed binding).
     dlq-max-len: 500
+  filter:
+    # 필터/게이팅 파이프라인 (SPEC-NOTIFIER-FILTER-001). enabled=false면 파이프라인·장전 적재 빈을 올리지 않고 소비 계층의 무동작 핸들러가 남는다.
+    enabled: ${NOTIFIER_FILTER_ENABLED:true}
+    reference-load:
+      # 장전 참조 데이터·밴드 적재 cron (REQ-001, ADR-008 cron 전용). 국내 = KST 개장 30분 전, 해외 = ET 개장 30분 전.
+      domestic-cron: "0 30 8 * * MON-FRI"
+      overseas-cron: "0 0 9 * * MON-FRI"
+      # daily_ohlcv 조회 창(달력일). 20거래일 평균 거래량 + ATR(14) 입력 15거래일을 연휴 포함해도 확보하는 폭.
+      lookback-days: 45
+    band:
+      # [1] δ — 밴드 이원 경계 마진(score 축). analyzer grade_boundaries.json grade_margin_delta.value와 수치가 같아야 한다(REQ-081).
+      # notifier는 이미 δ가 반영된 PROMOTE/DEMOTE 밴드를 소비할 뿐 이 값으로 계산하지 않는다 — 배포 전 대조용 미러 값이다.
+      delta: 0.010017154049042788
 
 logging:
   pattern:
@@ -83,6 +113,10 @@ management:
         readiness:
           include: readinessState,redis
   health:
+    db:
+      # DB는 notifier에서 fail-open 경로다(참조 적재 실패 = 이전 캐시 유지, DRYRUN INSERT 실패 = WARN 폴백).
+      # 기본 DataSourceHealthIndicator가 켜지면 DB 일시 장애가 /actuator/health DOWN → 컨테이너 unhealthy로 번지므로 끈다.
+      enabled: false
     redis:
       # 기본 RedisHealthIndicator(INFO 명령) 비활성화 — 커스텀 RedisPingHealthIndicator(PING)로 대체 (ADR-015)
       enabled: false
