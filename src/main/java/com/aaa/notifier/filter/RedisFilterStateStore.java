@@ -3,6 +3,7 @@ package com.aaa.notifier.filter;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
@@ -138,5 +139,20 @@ public class RedisFilterStateStore implements FilterStateStore {
                 IntStream.rangeClosed(1, MAX_TIER)
                         .mapToObj(tier -> FilterKeys.cooldown(symbol, horizon, tier))
                         .toList());
+    }
+
+    @Override
+    public void appendConfidence(
+            String symbol, String horizon, BigDecimal confidence, int windowSize) {
+        String key = FilterKeys.confidence(symbol, horizon);
+        redisTemplate.opsForList().rightPush(key, confidence.toPlainString());
+        redisTemplate.opsForList().trim(key, -windowSize, -1);
+    }
+
+    @Override
+    public List<BigDecimal> confidences(String symbol, String horizon) {
+        List<String> values =
+                redisTemplate.opsForList().range(FilterKeys.confidence(symbol, horizon), 0, -1);
+        return values == null ? List.of() : values.stream().map(BigDecimal::new).toList();
     }
 }

@@ -29,4 +29,9 @@ public final class FilterKeys {
     public static String cooldown(String symbol, String horizon, int tier) {
         return "filter:cooldown:" + symbol + ":" + horizon + ":" + tier;
     }
+
+    /** confidence 회전 윈도 — 다일 수명(만료 없음, REQ-051 버그 수정). */
+    public static String confidence(String symbol, String horizon) {
+        return "filter:confidence:" + symbol + ":" + horizon;
+    }
 }

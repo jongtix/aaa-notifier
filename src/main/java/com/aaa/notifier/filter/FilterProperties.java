@@ -18,6 +18,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param guard 가드 필터 설정
  * @param confirm 전환 유형별 확증 횟수
  * @param cooldown 전환 유형별·Tier별 쿨다운
+ * @param confidence confidence 방향성·저확신 설정
  */
 @ConfigurationProperties(prefix = "notifier.filter")
 public record FilterProperties(
@@ -26,7 +27,8 @@ public record FilterProperties(
         Band band,
         Guard guard,
         Confirm confirm,
-        Cooldown cooldown) {
+        Cooldown cooldown,
+        Confidence confidence) {
 
     public FilterProperties {
         Objects.requireNonNull(referenceLoad, "notifier.filter.reference-load는 필수다");
@@ -34,6 +36,7 @@ public record FilterProperties(
         Objects.requireNonNull(guard, "notifier.filter.guard는 필수다");
         Objects.requireNonNull(confirm, "notifier.filter.confirm은 필수다");
         Objects.requireNonNull(cooldown, "notifier.filter.cooldown은 필수다");
+        Objects.requireNonNull(confidence, "notifier.filter.confidence는 필수다");
     }
 
     /**
@@ -133,6 +136,31 @@ public record FilterProperties(
                     throw new IllegalArgumentException(
                             "notifier.filter.cooldown.* 는 음수일 수 없다 (현재 값: " + value + ")");
                 }
+            }
+        }
+    }
+
+    /**
+     * confidence 방향성 검사와 저확신 표시 (REQ-051~053).
+     *
+     * @param weakeningDelta 회전 윈도가 연속 하락하면서 처음 − 마지막 하락 폭이 이 값 이상이면 약화 추세
+     * @param lowThreshold 이 값 미만 confidence는 저확신 표시 플래그(발송 차단 아님, 구 Tier-1 게이트 임계의 재용도)
+     * @param windowSize 회전 윈도 길이(N거래일). 윈도가 N개 미만이면 추세 판단 불가로 본다
+     */
+    public record Confidence(BigDecimal weakeningDelta, BigDecimal lowThreshold, int windowSize) {
+
+        /** 추세는 두 값 이상에서만 성립한다. */
+        private static final int MIN_WINDOW = 2;
+
+        public Confidence {
+            Objects.requireNonNull(
+                    weakeningDelta, "notifier.filter.confidence.weakening-delta는 필수다");
+            Objects.requireNonNull(lowThreshold, "notifier.filter.confidence.low-threshold는 필수다");
+            if (windowSize < MIN_WINDOW) {
+                throw new IllegalArgumentException(
+                        "notifier.filter.confidence.window-size는 2 이상이어야 한다 — 추세는 두 값 이상에서만 성립한다 (현재 값: "
+                                + windowSize
+                                + ")");
             }
         }
     }

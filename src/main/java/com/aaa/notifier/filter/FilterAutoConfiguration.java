@@ -92,6 +92,7 @@ public class FilterAutoConfiguration {
                 stateStore,
                 new GuardEvaluator(properties.guard(), metrics),
                 new TransitionPolicy(properties.confirm(), properties.cooldown()),
+                new ConfidencePolicy(properties.confidence()),
                 alertDecisionSink,
                 metrics);
     }
@@ -119,8 +120,15 @@ public class FilterAutoConfiguration {
             FilterStateStore stateStore,
             TransitionGate transitionGate,
             FilterMetrics metrics,
+            FilterProperties properties,
             Clock clock) {
         return new FilterPipeline(
-                holder, stateStore, new IntradayTracker(), transitionGate, metrics, clock);
+                holder,
+                stateStore,
+                new IntradayTracker(),
+                transitionGate,
+                new ConfidencePolicy(properties.confidence()),
+                metrics,
+                clock);
     }
 }

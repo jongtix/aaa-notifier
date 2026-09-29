@@ -95,6 +95,14 @@ notifier:
       tier1-repeat: 20m
       # Tier 3 강도 완화(STRONG_BUY→BUY 등). plan.md §F 표에 없는 값 — design.md §4 M5 확인 사항에 따라 HOLD 이탈과 같은 '짧음' 등급으로 잠정.
       tier3-weakening: 10m
+    confidence:
+      # confidence 방향성 판정 임계(Δconfidence): 회전 윈도가 매 단계 하락하면서 처음-마지막 하락 폭이 이 값 이상이면 약화 추세 →
+      # Tier 구분 없이 모든 전환 후보를 강등·억제한다(REQ-052, Tier 1 포함).
+      weakening-delta: 0.05
+      # 저확신 표시 임계: 이 값 미만 confidence는 결정에 표시 플래그만 싣는다 — 발송 차단 아님(REQ-053).
+      low-threshold: 0.65
+      # confidence 회전 윈도 길이(N거래일) — filter:confidence 리스트에 최근 N개만 보관, 만료 없음(REQ-051).
+      window-size: 5
 
 logging:
   pattern:

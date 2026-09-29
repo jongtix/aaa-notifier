@@ -1,6 +1,8 @@
 package com.aaa.notifier.filter;
 
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -64,4 +66,13 @@ public interface FilterStateStore {
 
     /** 종목·horizon의 모든 Tier 쿨다운을 지운다(장 시작 리셋, REQ-034 후단). */
     void clearCooldowns(String symbol, String horizon);
+
+    /**
+     * confidence 회전 윈도에 값을 덧붙이고 최근 {@code windowSize}개만 남긴다 (REQ-051). 만료를 걸지 않는다 — 신호는 하루 1회라 장 마감
+     * 만료를 걸면 추세가 영영 쌓이지 않는다(기존 설계의 TTL 버그).
+     */
+    void appendConfidence(String symbol, String horizon, BigDecimal confidence, int windowSize);
+
+    /** confidence 회전 윈도 — 오래된 값 → 최신 값 순서. */
+    List<BigDecimal> confidences(String symbol, String horizon);
 }

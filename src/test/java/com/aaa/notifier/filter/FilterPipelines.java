@@ -26,6 +26,9 @@ final class FilterPipelines {
                     Duration.ofMinutes(20),
                     Duration.ofMinutes(10));
 
+    static final FilterProperties.Confidence CONFIDENCE =
+            new FilterProperties.Confidence(new BigDecimal("0.05"), new BigDecimal("0.65"), 5);
+
     private FilterPipelines() {}
 
     static FilterPipeline create(
@@ -35,13 +38,16 @@ final class FilterPipelines {
             MeterRegistry registry,
             Clock clock) {
         FilterMetrics metrics = FilterMetrics.create(registry);
+        ConfidencePolicy confidencePolicy = new ConfidencePolicy(CONFIDENCE);
         TransitionGate gate =
                 new TransitionGate(
                         store,
                         new GuardEvaluator(GUARD, metrics),
                         new TransitionPolicy(CONFIRM, COOLDOWN),
+                        confidencePolicy,
                         sink,
                         metrics);
-        return new FilterPipeline(holder, store, new IntradayTracker(), gate, metrics, clock);
+        return new FilterPipeline(
+                holder, store, new IntradayTracker(), gate, confidencePolicy, metrics, clock);
     }
 }

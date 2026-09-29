@@ -1,6 +1,9 @@
 package com.aaa.notifier.filter;
 
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,6 +20,7 @@ class InMemoryFilterStateStore implements FilterStateStore {
     final Map<String, SignalSnapshot> signals = new ConcurrentHashMap<>();
     final Map<String, PendingTransition> pendings = new ConcurrentHashMap<>();
     final Map<String, Grade> cooldowns = new ConcurrentHashMap<>();
+    final Map<String, List<BigDecimal>> confidenceWindows = new ConcurrentHashMap<>();
 
     private static String key(String symbol, String horizon) {
         return symbol + ":" + horizon;
@@ -84,6 +88,23 @@ class InMemoryFilterStateStore implements FilterStateStore {
         cooldowns
                 .keySet()
                 .removeIf(cooldownKey -> cooldownKey.startsWith(key(symbol, horizon) + ":"));
+    }
+
+    @Override
+    public void appendConfidence(
+            String symbol, String horizon, BigDecimal confidence, int windowSize) {
+        List<BigDecimal> window =
+                new ArrayList<>(confidenceWindows.getOrDefault(key(symbol, horizon), List.of()));
+        window.add(confidence);
+        confidenceWindows.put(
+                key(symbol, horizon),
+                List.copyOf(
+                        window.subList(Math.max(0, window.size() - windowSize), window.size())));
+    }
+
+    @Override
+    public List<BigDecimal> confidences(String symbol, String horizon) {
+        return confidenceWindows.getOrDefault(key(symbol, horizon), List.of());
     }
 
     Grade gradeOf(String symbol, String horizon) {
