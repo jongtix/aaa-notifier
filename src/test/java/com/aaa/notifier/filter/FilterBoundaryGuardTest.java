@@ -49,4 +49,25 @@ class FilterBoundaryGuardTest {
                 .as("이원 경계 판정이 히스테리시스 구현의 전부다 (REQ-011 후단, TECHSPEC §8.2)")
                 .isEmpty();
     }
+
+    @Test
+    @DisplayName("AC-21 — 텔레그램 발송·SENT류 INSERT·stream:alert 발행 심볼이 없다 (DRYRUN INSERT만 허용)")
+    void noDownstreamSendingSymbols() {
+        assertThat(
+                        FilterSourceScan.findOccurrences(
+                                List.of(
+                                        "RestClient",
+                                        "RestTemplate",
+                                        "sendMessage",
+                                        "stream:alert",
+                                        "'SENT'",
+                                        "'SEND_FAILED'",
+                                        "'QUEUED'",
+                                        "'SUMMARY_SENT'")))
+                .as("발송·SENT류 기록·stream:alert 발행은 TELEGRAM-001 소관이다 (REQ-063)")
+                .isEmpty();
+        assertThat(FilterSourceScan.findOccurrences(List.of("'DRYRUN'")))
+                .as("DRYRUN INSERT는 결정 싱크 기본 구현 한 곳에만 있다")
+                .containsExactly("JdbcDryRunAlertDecisionSink.java:'DRYRUN'");
+    }
 }
