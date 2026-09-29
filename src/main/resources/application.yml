@@ -71,6 +71,16 @@ notifier:
       # [1] δ — 밴드 이원 경계 마진(score 축). analyzer grade_boundaries.json grade_margin_delta.value와 수치가 같아야 한다(REQ-081).
       # notifier는 이미 δ가 반영된 PROMOTE/DEMOTE 밴드를 소비할 뿐 이 값으로 계산하지 않는다 — 배포 전 대조용 미러 값이다.
       delta: 0.010017154049042788
+    # 이하 수치는 전부 plan.md §F 잠정값 — 과소 알림 방향(확증 많이·쿨다운 길게·임계 높게)으로 보수적이다. 드라이런 관측 후 보정한다.
+    guard:
+      # [2] 거래량 가드: 같은 시각까지의 20거래일 평균 누적 거래량 대비 이 비율 미만이면 전환 보류(REQ-021).
+      volume-ratio: 0.30
+      # [3] 시간대 가드: 개장 후 이 시간 이내 전환 억제(REQ-022).
+      open-exclusion: 15m
+      # [4] 시간대 가드: 마감 전 이 시간 이내 전환 억제(REQ-022).
+      close-exclusion: 10m
+      # [5] ATR 가드: 당일 누적 변동폭(고가-저가)이 ATR(14)의 이 배수를 넘으면 변동성 과열로 억제(REQ-022).
+      atr-multiplier: 2.5
 
 logging:
   pattern:
