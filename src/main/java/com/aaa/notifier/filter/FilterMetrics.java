@@ -19,6 +19,8 @@ public class FilterMetrics {
     static final String REFERENCE_LOAD = "notifier.filter.reference.load";
     static final String REFERENCE_STOCKS = "notifier.filter.reference.stocks";
     static final String STAGE_COUNTER = "notifier.filter.stage";
+    static final String DECISION_COUNTER = "notifier.filter.decision";
+    static final String PERSIST_FAILURE = "notifier.filter.decision.persist.failure";
 
     private static final String OUTCOME = "outcome";
 
@@ -50,6 +52,27 @@ public class FilterMetrics {
      */
     public void stage(Stage stage, Outcome outcome) {
         registry.counter(STAGE_COUNTER, "stage", stage.tag(), OUTCOME, outcome.tag()).increment();
+    }
+
+    /**
+     * 결정 1건을 기록한다 — {@code notifier_filter_decision_total{outcome, suppression_reason}}.
+     *
+     * @param decision 발송 후보 또는 억제 결정
+     */
+    public void decision(AlertDecision decision) {
+        SuppressionReason reason = decision.suppressionReason();
+        registry.counter(
+                        DECISION_COUNTER,
+                        OUTCOME,
+                        reason == null ? "candidate" : "suppressed",
+                        "suppression_reason",
+                        reason == null ? "none" : reason.name().toLowerCase(Locale.ROOT))
+                .increment();
+    }
+
+    /** DRYRUN INSERT가 3회 모두 실패했다(plan.md §C.3). */
+    public void persistFailure() {
+        registry.counter(PERSIST_FAILURE).increment();
     }
 
     /** 장전 적재 1회의 결과를 기록한다. */

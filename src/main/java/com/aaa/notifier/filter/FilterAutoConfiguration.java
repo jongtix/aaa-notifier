@@ -81,6 +81,17 @@ public class FilterAutoConfiguration {
     }
 
     /**
+     * 결정 싱크 기본 구현 — {@code notification_log} DRYRUN INSERT (REQ-062). TELEGRAM-001의 실발송 구현체가 올라오면
+     * 물러난다.
+     */
+    @Bean
+    @ConditionalOnMissingBean(AlertDecisionSink.class)
+    public AlertDecisionSink jdbcDryRunAlertDecisionSink(
+            JdbcTemplate jdbcTemplate, FilterMetrics metrics, Clock clock) {
+        return new JdbcDryRunAlertDecisionSink(jdbcTemplate, metrics, clock);
+    }
+
+    /**
      * 소비 계층 하류 포트의 실동작 구현 (REQ-062 — CONSUMER-001 REQ-051의 무동작 기본값을 코드 변경 없이 대체).
      *
      * <p>테스트 등에서 다른 {@link StreamObservationHandler}가 이미 등록되어 있으면 물러난다.
