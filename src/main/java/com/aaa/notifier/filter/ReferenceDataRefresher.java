@@ -72,6 +72,7 @@ public class ReferenceDataRefresher {
         metrics.referenceLoad(true, snapshot.stocks().size());
         if (openingMarket != null) {
             resetCooldowns(snapshot, openingMarket);
+            metrics.resetPending(openingMarket);
         }
         int initialized = initializeGrades(snapshot);
         log.info(

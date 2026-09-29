@@ -164,6 +164,7 @@ public class FilterPipeline implements StreamObservationHandler {
         }
         if (pending.get().to() != agreed) {
             stateStore.clearPending(symbol, horizon); // 유효 등급과 어긋난 묵은 후보
+            metrics.pendingClosed(base.reference().market(), symbol, horizon);
             return;
         }
         gate.evaluate(withPending(base, pending.get()));
