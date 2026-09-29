@@ -19,6 +19,8 @@ spring-boot-starter-web = { group = "org.springframework.boot", name = "spring-b
 spring-boot-starter-actuator = { group = "org.springframework.boot", name = "spring-boot-starter-actuator" }
 micrometer-registry-prometheus = { group = "io.micrometer", name = "micrometer-registry-prometheus", version.ref = "micrometer" }
 spring-boot-starter-data-redis = { group = "org.springframework.boot", name = "spring-boot-starter-data-redis" }
+spring-boot-starter-jdbc = { group = "org.springframework.boot", name = "spring-boot-starter-jdbc" }
+mysql-connector-j = { group = "com.mysql", name = "mysql-connector-j" }
 spring-boot-starter-test = { group = "org.springframework.boot", name = "spring-boot-starter-test" }
 
 # Lombok
@@ -29,6 +31,8 @@ archunit = { group = "com.tngtech.archunit", name = "archunit-junit5", version.r
 wiremock-spring-boot = { group = "org.wiremock.integrations", name = "wiremock-spring-boot", version.ref = "wiremock" }
 testcontainers = { group = "org.testcontainers", name = "testcontainers" }
 testcontainers-junit = { group = "org.testcontainers", name = "junit-jupiter" }
+testcontainers-mysql = { group = "org.testcontainers", name = "mysql" }
+commons-codec = { group = "commons-codec", name = "commons-codec" }
 spring-boot-testcontainers = { group = "org.springframework.boot", name = "spring-boot-testcontainers" }
 junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }
 

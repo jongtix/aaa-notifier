@@ -105,14 +105,15 @@ class StreamBoundaryGuardTest {
     class BuildDependencies {
 
         @Test
-        @DisplayName("build.gradle.kts에 JPA·MySQL·Flyway 의존성이 없다")
+        @DisplayName("build.gradle.kts에 JPA·Flyway 의존성이 없다")
         void buildFile_hasNoPersistenceDependencies() {
             String build = read(Path.of("build.gradle.kts"));
 
+            // REQ-052가 이연한 "notifier가 실제로 DB에 접속하는 시점"이 SPEC-NOTIFIER-FILTER-001이다 — 그 SPEC이
+            // JdbcTemplate + MySQL 드라이버만 도입했으므로(plan.md §D.1) mysql 금지는 해제하고, JPA·Flyway 금지는 유지한다.
             assertThat(build)
-                    .as("DB 접근 배선은 notifier가 실제로 DB에 접속하는 시점까지 이연한다 (REQ-052)")
+                    .as("notifier는 DDL을 소유하지 않고 JPA 스택도 쓰지 않는다 (ADR-016, FILTER-001 plan.md §D.1)")
                     .doesNotContain("data-jpa")
-                    .doesNotContain("mysql")
                     .doesNotContain("flyway");
         }
 

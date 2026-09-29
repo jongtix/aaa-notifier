@@ -7,3 +7,5 @@ spring:
     exclude:
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      # DB 미기동 smoke 컨텍스트 — DataSource가 없으면 JdbcTemplate도 없어 필터 파이프라인 자동 구성이 조용히 비활성화된다.
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration

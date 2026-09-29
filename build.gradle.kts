@@ -117,7 +117,9 @@ dependencies {
     implementation(libs.spring.boot.starter.web)          // 내장 Tomcat, Spring MVC, Jackson
     implementation(libs.spring.boot.starter.actuator)     // 헬스체크 + Prometheus 노출 엔드포인트
     implementation(libs.micrometer.registry.prometheus)   // /actuator/prometheus (VictoriaMetrics 호환) 노출
-    implementation(libs.spring.boot.starter.data.redis)   // Redis 연동 (필터 상태 저장소 연결 — 실제 키 접근은 FILTER-001 소관)
+    implementation(libs.spring.boot.starter.data.redis)   // Redis 연동 (필터 상태 저장소 filter:* 키 — FILTER-001)
+    implementation(libs.spring.boot.starter.jdbc)         // JdbcTemplate — 장전 참조 SELECT 3종 + notification_log DRYRUN INSERT (FILTER-001, JPA 미도입)
+    runtimeOnly(libs.mysql.connector.j)                   // MySQL JDBC 드라이버 (collector와 동일 아티팩트, 버전은 Spring Boot BOM 관리)
 
     // --- Lombok ---
     compileOnly(libs.lombok)                                     // 보일러플레이트 제거 (@Slf4j, @RequiredArgsConstructor 등)
@@ -129,6 +131,8 @@ dependencies {
     testImplementation(libs.wiremock.spring.boot)          // 외부 API mock 서버 (후속 SPEC 대비)
     testImplementation(libs.testcontainers)                // 컨테이너 기반 통합 테스트
     testImplementation(libs.testcontainers.junit)          // Testcontainers JUnit 5 확장
+    testImplementation(libs.testcontainers.mysql)          // Testcontainers MySQL (FILTER-001 참조 적재·DRYRUN INSERT 실측)
+    testRuntimeOnly(libs.commons.codec)                    // Testcontainers MySQLContainer가 요구하는 전이 의존성 (collector와 동일)
     testImplementation(libs.spring.boot.testcontainers)    // @ServiceConnection 지원
     testRuntimeOnly(libs.junit.platform.launcher)          // IDE/Gradle 테스트 실행 엔진
 

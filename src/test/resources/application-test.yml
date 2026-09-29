@@ -9,6 +9,18 @@ spring:
       port: 6379
       username: ""
       password: ""
+  # MySQL 자리 채움 — HikariCP는 지연 초기화(initialization-fail-timeout=-1)라 실제 쿼리가 없으면 접속하지 않는다.
+  # MySQL 통합 테스트는 Testcontainers @ServiceConnection이 url/username/password를 다시 덮어쓴다.
+  datasource:
+    url: jdbc:mysql://localhost:3306/aaa
+    username: test
+    password: test
+
+notifier:
+  filter:
+    # Redis 전용 통합 테스트(소비 계층)는 필터 파이프라인을 끈다 — 켜 두면 기동 시 장전 적재가 미기동 MySQL에 접속을 시도한다.
+    # 필터 통합 테스트는 @SpringBootTest(properties)로 true를 다시 지정한다.
+    enabled: false
 
 # management.endpoint.health.group.readiness는 redis 컨트리뷰터 존재를 전제한다(application.yml).
 # smoke 프로파일(application-smoke.yml)은 RedisAutoConfiguration을 의도적으로 exclude하므로,

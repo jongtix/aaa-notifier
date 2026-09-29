@@ -1,2 +1,3 @@
 com.aaa.notifier.common.health.RedisHealthConfig
 com.aaa.notifier.stream.StreamConsumerAutoConfiguration
+com.aaa.notifier.filter.FilterAutoConfiguration
