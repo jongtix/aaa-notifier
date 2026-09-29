@@ -55,4 +55,17 @@ final class FilterSourceScan {
         String withoutBlocks = BLOCK_COMMENT.matcher(source).replaceAll(" ");
         return LINE_COMMENT.matcher(withoutBlocks).replaceAll(" ");
     }
+
+    /** 필터 패키지 전체 소스(주석 제거 후)에서 토큰의 총 출현 횟수. */
+    static long countOccurrences(String token) {
+        try (Stream<Path> paths = Files.walk(PRODUCTION_SOURCE_DIR)) {
+            return paths.filter(path -> path.toString().endsWith(".java"))
+                    .map(path -> stripComments(read(path)))
+                    .mapToLong(code -> code.split(Pattern.quote(token), -1).length - 1L)
+                    .sum();
+        } catch (IOException e) {
+            throw new UncheckedIOException(
+                    "필터 패키지 소스를 읽을 수 없다: " + PRODUCTION_SOURCE_DIR.toAbsolutePath(), e);
+        }
+    }
 }
