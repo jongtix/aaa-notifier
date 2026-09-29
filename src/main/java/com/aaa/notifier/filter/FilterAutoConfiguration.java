@@ -80,6 +80,22 @@ public class FilterAutoConfiguration {
         return new ReferenceDataRefresher(loader, holder, stateStore, metrics, clock);
     }
 
+    /** 가드 → 확증 → 쿨다운 → 결정 방출 게이트. */
+    @Bean
+    @ConditionalOnMissingBean
+    public TransitionGate transitionGate(
+            FilterStateStore stateStore,
+            AlertDecisionSink alertDecisionSink,
+            FilterMetrics metrics,
+            FilterProperties properties) {
+        return new TransitionGate(
+                stateStore,
+                new GuardEvaluator(properties.guard(), metrics),
+                new TransitionPolicy(properties.confirm(), properties.cooldown()),
+                alertDecisionSink,
+                metrics);
+    }
+
     /**
      * 결정 싱크 기본 구현 — {@code notification_log} DRYRUN INSERT (REQ-062). TELEGRAM-001의 실발송 구현체가 올라오면
      * 물러난다.
@@ -101,8 +117,10 @@ public class FilterAutoConfiguration {
     public FilterPipeline filterPipeline(
             ReferenceDataHolder holder,
             FilterStateStore stateStore,
+            TransitionGate transitionGate,
             FilterMetrics metrics,
             Clock clock) {
-        return new FilterPipeline(holder, stateStore, metrics, clock);
+        return new FilterPipeline(
+                holder, stateStore, new IntradayTracker(), transitionGate, metrics, clock);
     }
 }

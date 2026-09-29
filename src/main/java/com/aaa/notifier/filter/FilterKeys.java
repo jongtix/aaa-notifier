@@ -19,4 +19,14 @@ public final class FilterKeys {
     public static String signal(String symbol, String horizon) {
         return "filter:signal:" + symbol + ":" + horizon;
     }
+
+    /** 확증 대기 후보 — 장 마감 만료. */
+    public static String confirm(String symbol, String horizon) {
+        return "filter:confirm:" + symbol + ":" + horizon;
+    }
+
+    /** Tier별 쿨다운 — 쿨다운 TTL로 자동 만료, 장 시작 시 초기화. */
+    public static String cooldown(String symbol, String horizon, int tier) {
+        return "filter:cooldown:" + symbol + ":" + horizon + ":" + tier;
+    }
 }

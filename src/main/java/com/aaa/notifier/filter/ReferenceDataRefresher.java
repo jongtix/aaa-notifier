@@ -70,6 +70,9 @@ public class ReferenceDataRefresher {
         }
         holder.replace(snapshot);
         metrics.referenceLoad(true, snapshot.stocks().size());
+        if (openingMarket != null) {
+            resetCooldowns(snapshot, openingMarket);
+        }
         int initialized = initializeGrades(snapshot);
         log.info(
                 "[filter-reference] 참조 데이터 적재 완료 opening={} stocks={} gradesInitialized={}",
@@ -84,6 +87,18 @@ public class ReferenceDataRefresher {
                 MarketSession.of(Market.DOMESTIC).today(clock),
                 Market.OVERSEAS,
                 MarketSession.of(Market.OVERSEAS).today(clock));
+    }
+
+    /** 장 시작 시 그 시장 종목·horizon의 모든 쿨다운을 초기화한다 (REQ-034 후단). */
+    private void resetCooldowns(ReferenceSnapshot snapshot, Market openingMarket) {
+        for (StockReference reference : snapshot.stocks()) {
+            if (reference.market() == openingMarket) {
+                reference
+                        .bands()
+                        .keySet()
+                        .forEach(horizon -> stateStore.clearCooldowns(reference.symbol(), horizon));
+            }
+        }
     }
 
     /** 전일 종가가 속한 DEMOTE 파티션 등급으로 유효 등급 초기값을 세팅한다 — 이미 마감한 시장은 건너뛴다. */

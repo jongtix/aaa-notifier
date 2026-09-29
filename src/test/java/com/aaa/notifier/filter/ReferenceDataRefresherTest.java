@@ -167,4 +167,37 @@ class ReferenceDataRefresherTest {
         // Assert
         assertThat(registry.get("notifier.filter.reference.stocks").gauge().value()).isEqualTo(1.0);
     }
+
+    @Test
+    @DisplayName("AC-13 후단 — 장전 cron은 개장하는 시장 종목의 쿨다운을 초기화한다")
+    void preOpen_resetsCooldownsOfOpeningMarket() {
+        // Arrange
+        when(loader.load(anyMap()))
+                .thenReturn(
+                        new ReferenceSnapshot(
+                                List.of(
+                                        reference("005930", Market.DOMESTIC),
+                                        reference("AAPL", Market.OVERSEAS))));
+
+        // Act
+        refresher.onDomesticPreOpen();
+
+        // Assert
+        verify(store).clearCooldowns("005930", "D20");
+        verify(store, never()).clearCooldowns("AAPL", "D20");
+    }
+
+    @Test
+    @DisplayName("기동(재시작) 경로는 쿨다운을 초기화하지 않는다")
+    void startup_keepsCooldowns() {
+        // Arrange
+        when(loader.load(anyMap()))
+                .thenReturn(new ReferenceSnapshot(List.of(reference("005930", Market.DOMESTIC))));
+
+        // Act
+        refresher.onApplicationReady();
+
+        // Assert
+        verify(store, never()).clearCooldowns(anyString(), anyString());
+    }
 }

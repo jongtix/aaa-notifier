@@ -16,18 +16,24 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param referenceLoad 장전 적재 설정
  * @param band 밴드 판정 설정
  * @param guard 가드 필터 설정
+ * @param confirm 전환 유형별 확증 횟수
+ * @param cooldown 전환 유형별·Tier별 쿨다운
  */
 @ConfigurationProperties(prefix = "notifier.filter")
 public record FilterProperties(
         @DefaultValue("true") boolean enabled,
         ReferenceLoad referenceLoad,
         Band band,
-        Guard guard) {
+        Guard guard,
+        Confirm confirm,
+        Cooldown cooldown) {
 
     public FilterProperties {
         Objects.requireNonNull(referenceLoad, "notifier.filter.reference-load는 필수다");
         Objects.requireNonNull(band, "notifier.filter.band는 필수다");
         Objects.requireNonNull(guard, "notifier.filter.guard는 필수다");
+        Objects.requireNonNull(confirm, "notifier.filter.confirm은 필수다");
+        Objects.requireNonNull(cooldown, "notifier.filter.cooldown은 필수다");
     }
 
     /**
@@ -77,6 +83,57 @@ public record FilterProperties(
             Objects.requireNonNull(openExclusion, "notifier.filter.guard.open-exclusion은 필수다");
             Objects.requireNonNull(closeExclusion, "notifier.filter.guard.close-exclusion은 필수다");
             Objects.requireNonNull(atrMultiplier, "notifier.filter.guard.atr-multiplier는 필수다");
+        }
+    }
+
+    /**
+     * 전환 유형별 확증 횟수 — 직접 &lt; HOLD 이탈 &lt; HOLD 진입 순으로 엄격(REQ-032). ※칸도 동시 성립 유형의 값을 쓴다(REQ-042).
+     *
+     * @param direct [6] 직접 전환
+     * @param holdExit [7] HOLD 이탈
+     * @param holdEntry [8] HOLD 진입
+     */
+    public record Confirm(int direct, int holdExit, int holdEntry) {
+
+        public Confirm {
+            if (direct < 1 || holdExit < 1 || holdEntry < 1) {
+                throw new IllegalArgumentException(
+                        "notifier.filter.confirm.* 는 1 이상이어야 한다 (현재 값: direct="
+                                + direct
+                                + ", hold-exit="
+                                + holdExit
+                                + ", hold-entry="
+                                + holdEntry
+                                + ")");
+            }
+        }
+    }
+
+    /**
+     * 쿨다운 — 직접(없음) &lt; HOLD 이탈 &lt; HOLD 진입 순으로 길어진다(REQ-032). 0은 "쿨다운 없음"이다.
+     *
+     * @param direct [9] 직접 전환
+     * @param holdExit [10] HOLD 이탈
+     * @param holdEntry [11] HOLD 진입
+     * @param tier1Repeat Tier-1 동일방향 반복(순수 강도 강화 칸, REQ-035)
+     * @param tier3Weakening Tier 3 강도 완화 칸(design.md §4 M5 확인 사항 — HOLD 이탈과 같은 '짧음' 등급의 잠정값)
+     */
+    public record Cooldown(
+            Duration direct,
+            Duration holdExit,
+            Duration holdEntry,
+            Duration tier1Repeat,
+            Duration tier3Weakening) {
+
+        public Cooldown {
+            for (Duration value :
+                    new Duration[] {direct, holdExit, holdEntry, tier1Repeat, tier3Weakening}) {
+                Objects.requireNonNull(value, "notifier.filter.cooldown.* 는 필수다");
+                if (value.isNegative()) {
+                    throw new IllegalArgumentException(
+                            "notifier.filter.cooldown.* 는 음수일 수 없다 (현재 값: " + value + ")");
+                }
+            }
         }
     }
 }

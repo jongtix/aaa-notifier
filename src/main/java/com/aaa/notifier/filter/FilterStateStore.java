@@ -38,4 +38,30 @@ public interface FilterStateStore {
 
     /** 당일 신호 스냅샷을 덮어쓴다(만료 없음 — 다음 신호가 덮어쓸 때까지 유지). */
     void saveSignal(String symbol, String horizon, SignalSnapshot snapshot);
+
+    /** 확증 대기 후보를 읽는다. */
+    Optional<PendingTransition> pending(String symbol, String horizon);
+
+    /**
+     * 확증 대기 후보를 기록한다(기존 후보는 교체).
+     *
+     * @param ttl 장 마감까지 남은 시간(양수)
+     */
+    void savePending(String symbol, String horizon, PendingTransition pending, Duration ttl);
+
+    /** 확증 대기 후보를 지운다(발송 후보 확정·억제 확정 시). */
+    void clearPending(String symbol, String horizon);
+
+    /**
+     * 진행 중인 쿨다운을 읽는다.
+     *
+     * @return 쿨다운을 건 결정의 전환 후 등급. 만료됐거나 없으면 빈 값
+     */
+    Optional<Grade> cooldown(String symbol, String horizon, int tier);
+
+    /** 쿨다운을 건다 — {@code duration} 경과 후 자동 만료된다. */
+    void startCooldown(String symbol, String horizon, int tier, Grade toGrade, Duration duration);
+
+    /** 종목·horizon의 모든 Tier 쿨다운을 지운다(장 시작 리셋, REQ-034 후단). */
+    void clearCooldowns(String symbol, String horizon);
 }
