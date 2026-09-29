@@ -90,6 +90,21 @@ class FilterPipelineConfidenceTest {
         }
 
         @Test
+        @DisplayName("AC-21 — onSignal은 상태만 갱신하고 결정 싱크를 호출하지 않는다 (틱만이 구동원)")
+        void onSignal_neverCallsDecisionSink() {
+            // Arrange — 유효 등급과 다른 등급의 신호가 와도
+            FilterPipeline pipeline = pipeline(Grade.BUY);
+            store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
+
+            // Act
+            feedSignals(pipeline, "0.80", "0.75", "0.70", "0.65", "0.60", "0.55");
+
+            // Assert
+            assertThat(decisions).isEmpty();
+            assertThat(store.gradeOf("005930", "D20")).isEqualTo(Grade.HOLD);
+        }
+
+        @Test
         @DisplayName("같은 거래일 신호의 재전달은 윈도에 두 번 쌓이지 않는다")
         void redeliveredSignal_isNotAppendedTwice() {
             // Arrange
