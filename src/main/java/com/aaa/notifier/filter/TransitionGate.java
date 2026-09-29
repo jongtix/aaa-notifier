@@ -107,6 +107,8 @@ public class TransitionGate {
                 detection.horizon(),
                 pending.withReason(reason),
                 detection.untilClose());
+        metrics.pendingOpened(
+                detection.reference().market(), detection.symbol(), detection.horizon());
         if (reasonChanged) {
             sink.onDecision(decision(detection, cell, reason));
         }
@@ -115,6 +117,8 @@ public class TransitionGate {
     /** 후보를 종결하고 결정을 방출한다. {@code reason}이 {@code null}이면 발송 후보다. */
     private void close(Detection detection, TransitionClass cell, SuppressionReason reason) {
         stateStore.clearPending(detection.symbol(), detection.horizon());
+        metrics.pendingClosed(
+                detection.reference().market(), detection.symbol(), detection.horizon());
         AlertDecision decision = decision(detection, cell, reason);
         if (decision.isCandidate() && decision.lowConfidenceFlag()) {
             metrics.stage(Stage.CONFIDENCE, Outcome.LOW_CONFIDENCE_TAGGED);

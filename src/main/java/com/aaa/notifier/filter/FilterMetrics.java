@@ -1,8 +1,11 @@
 package com.aaa.notifier.filter;
 
+import com.aaa.notifier.stream.Market;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -21,11 +24,15 @@ public class FilterMetrics {
     static final String STAGE_COUNTER = "notifier.filter.stage";
     static final String DECISION_COUNTER = "notifier.filter.decision";
     static final String PERSIST_FAILURE = "notifier.filter.decision.persist.failure";
+    static final String CONFIRM_PENDING = "notifier.filter.confirm.pending";
 
     private static final String OUTCOME = "outcome";
 
     private final MeterRegistry registry;
     private final AtomicInteger loadedStocks = new AtomicInteger();
+
+    /** 이 프로세스가 연 확증 대기 후보 — 종목·horizon 단위(카디널리티 폭주를 피해 태그 없이 개수만 노출). */
+    private final Set<PendingKey> pendingCandidates = ConcurrentHashMap.newKeySet();
 
     /**
      * 계측기를 만들고 게이지를 즉시 등록한다(warm-start).
@@ -42,6 +49,28 @@ public class FilterMetrics {
         Gauge.builder(REFERENCE_STOCKS, loadedStocks, AtomicInteger::get)
                 .description("장전 적재로 판정 가능한 종목 수 — 0이면 전 종목 밴드 판정 불가 상태(plan.md §H R3)")
                 .register(registry);
+        Gauge.builder(CONFIRM_PENDING, pendingCandidates, Set::size)
+                .description("확증 대기 중인 전환 후보 수 (종목×horizon)")
+                .register(registry);
+    }
+
+    /** 확증 대기 후보가 열렸다(가드 대기·확증 미달). */
+    public void pendingOpened(Market market, String symbol, String horizon) {
+        pendingCandidates.add(new PendingKey(market, symbol, horizon));
+    }
+
+    /** 확증 대기 후보가 종결됐다(발송 후보 확정·쿨다운·강등·묵은 후보 정리). */
+    public void pendingClosed(Market market, String symbol, String horizon) {
+        pendingCandidates.remove(new PendingKey(market, symbol, horizon));
+    }
+
+    /**
+     * 개장 시 그 시장의 대기 후보 수를 비운다 — 후보 키({@code filter:confirm})는 전날 장 마감에 만료됐으므로 게이지도 따라 비운다.
+     *
+     * @param market 개장하는 시장
+     */
+    public void resetPending(Market market) {
+        pendingCandidates.removeIf(key -> key.market() == market);
     }
 
     /**
@@ -82,6 +111,8 @@ public class FilterMetrics {
             loadedStocks.set(stockCount);
         }
     }
+
+    private record PendingKey(Market market, String symbol, String horizon) {}
 
     /** 파이프라인 단계 (design.md §6 {@code stage} 태그). */
     public enum Stage {
