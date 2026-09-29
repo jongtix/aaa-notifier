@@ -8,7 +8,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 전환 후보 게이트 — 가드 → 확증 → 쿨다운 → 결정 방출 (REQ-024/031~035/042, design.md §1 2~8단계).
+ * 전환 후보 게이트 — 가드 → 확증 → 쿨다운 → confidence 방향성 → 결정 방출 (REQ-024/031~035/042, design.md §1 2~8단계).
  *
  * <p><b>억제의 두 종류.</b> 가드 차단·확증 미달은 후보를 <b>대기</b>시킨다 — 후보는 남고 다음 감지에서 다시 평가된다. 쿨다운은 후보를 <b>종결</b>시킨다
  * — 이 전환은 알리지 않는다. 발송 후보가 확정돼도 후보는 종결된다.
@@ -23,6 +23,7 @@ public class TransitionGate {
     private final FilterStateStore stateStore;
     private final GuardEvaluator guards;
     private final TransitionPolicy policy;
+    private final ConfidencePolicy confidencePolicy;
     private final AlertDecisionSink sink;
     private final FilterMetrics metrics;
 
@@ -61,6 +62,15 @@ public class TransitionGate {
             return;
         }
         metrics.stage(Stage.COOLDOWN, Outcome.PASS);
+
+        // Tier 구분 없이 균일 적용 — Tier 1(STRONG 도달)도 예외가 아니다(REQ-052, plan.md §C.2)
+        if (confidencePolicy.isWeakening(
+                stateStore.confidences(detection.symbol(), detection.horizon()))) {
+            metrics.stage(Stage.CONFIDENCE, Outcome.BLOCK);
+            close(detection, cell, SuppressionReason.CONFIDENCE_WEAKENING_DEMOTED);
+            return;
+        }
+        metrics.stage(Stage.CONFIDENCE, Outcome.PASS);
 
         close(detection, cell, null);
         Duration cooldown = policy.cooldownOf(cell);
@@ -105,7 +115,11 @@ public class TransitionGate {
     /** 후보를 종결하고 결정을 방출한다. {@code reason}이 {@code null}이면 발송 후보다. */
     private void close(Detection detection, TransitionClass cell, SuppressionReason reason) {
         stateStore.clearPending(detection.symbol(), detection.horizon());
-        sink.onDecision(decision(detection, cell, reason));
+        AlertDecision decision = decision(detection, cell, reason);
+        if (decision.isCandidate() && decision.lowConfidenceFlag()) {
+            metrics.stage(Stage.CONFIDENCE, Outcome.LOW_CONFIDENCE_TAGGED);
+        }
+        sink.onDecision(decision);
     }
 
     private AlertDecision decision(
@@ -126,7 +140,7 @@ public class TransitionGate {
                 cell.type(),
                 score,
                 confidence,
-                false,
+                confidencePolicy.isLow(confidence),
                 detection.observation().price(),
                 reference.prevClose(),
                 detection.tradeDate(),

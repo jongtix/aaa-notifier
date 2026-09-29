@@ -111,7 +111,9 @@ public class FilterMetrics {
         /** 그리드 밖 가격 클램프(REQ-014). */
         CLAMPED,
         /** {@code price.scale() != priceScale} 관측치 제외(REQ-015). */
-        SKIPPED_SCALE_MISMATCH;
+        SKIPPED_SCALE_MISMATCH,
+        /** 발송 후보에 저확신 표시 플래그 부여(REQ-053). */
+        LOW_CONFIDENCE_TAGGED;
 
         String tag() {
             return name().toLowerCase(Locale.ROOT);

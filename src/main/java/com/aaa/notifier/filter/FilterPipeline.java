@@ -36,6 +36,7 @@ public class FilterPipeline implements StreamObservationHandler {
     private final FilterStateStore stateStore;
     private final IntradayTracker intraday;
     private final TransitionGate gate;
+    private final ConfidencePolicy confidencePolicy;
     private final FilterMetrics metrics;
     private final Clock clock;
 
@@ -56,17 +57,34 @@ public class FilterPipeline implements StreamObservationHandler {
         // 호가 필드는 해석하지 않는다 — 파이프라인을 구동하지 않는다(spec.md §3 Out of Scope)
     }
 
+    /**
+     * 신호 상태만 갱신한다 — 알림 결정을 내리지 않는다(REQ-063 후단, 설계 초안 [D-10]/[D-17]).
+     *
+     * <p>{@code filter:signal} 스냅샷은 덮어쓰고, confidence는 회전 윈도에 덧붙인다(REQ-051). 같은 거래일 신호의 재전달은 윈도에 다시
+     * 쌓지 않는다 — 신호는 거래일당 1건이므로 거래일이 같으면 같은 신호다.
+     */
     @Override
     public void onSignal(SignalObservation observation) {
+        String symbol = observation.symbol();
+        String horizon = observation.horizon();
+        boolean newTradingDay =
+                stateStore
+                        .signal(symbol, horizon)
+                        .map(previous -> !previous.tradeDate().equals(observation.tradeDate()))
+                        .orElse(true);
         stateStore.saveSignal(
-                observation.symbol(),
-                observation.horizon(),
+                symbol,
+                horizon,
                 new SignalSnapshot(
                         observation.signalClass(),
                         observation.score(),
                         observation.confidence(),
                         observation.tradeDate(),
                         observation.traceId()));
+        if (newTradingDay) {
+            stateStore.appendConfidence(
+                    symbol, horizon, observation.confidence(), confidencePolicy.windowSize());
+        }
     }
 
     private static boolean isScaleMismatch(TradeTickObservation observation) {
