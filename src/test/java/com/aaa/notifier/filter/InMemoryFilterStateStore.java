@@ -15,6 +15,8 @@ class InMemoryFilterStateStore implements FilterStateStore {
     final Map<String, Grade> grades = new ConcurrentHashMap<>();
     final Map<String, Duration> gradeTtls = new ConcurrentHashMap<>();
     final Map<String, SignalSnapshot> signals = new ConcurrentHashMap<>();
+    final Map<String, PendingTransition> pendings = new ConcurrentHashMap<>();
+    final Map<String, Grade> cooldowns = new ConcurrentHashMap<>();
 
     private static String key(String symbol, String horizon) {
         return symbol + ":" + horizon;
@@ -48,6 +50,40 @@ class InMemoryFilterStateStore implements FilterStateStore {
     @Override
     public void saveSignal(String symbol, String horizon, SignalSnapshot snapshot) {
         signals.put(key(symbol, horizon), snapshot);
+    }
+
+    @Override
+    public Optional<PendingTransition> pending(String symbol, String horizon) {
+        return Optional.ofNullable(pendings.get(key(symbol, horizon)));
+    }
+
+    @Override
+    public void savePending(
+            String symbol, String horizon, PendingTransition pending, Duration ttl) {
+        pendings.put(key(symbol, horizon), pending);
+    }
+
+    @Override
+    public void clearPending(String symbol, String horizon) {
+        pendings.remove(key(symbol, horizon));
+    }
+
+    @Override
+    public Optional<Grade> cooldown(String symbol, String horizon, int tier) {
+        return Optional.ofNullable(cooldowns.get(key(symbol, horizon) + ":" + tier));
+    }
+
+    @Override
+    public void startCooldown(
+            String symbol, String horizon, int tier, Grade toGrade, Duration duration) {
+        cooldowns.put(key(symbol, horizon) + ":" + tier, toGrade);
+    }
+
+    @Override
+    public void clearCooldowns(String symbol, String horizon) {
+        cooldowns
+                .keySet()
+                .removeIf(cooldownKey -> cooldownKey.startsWith(key(symbol, horizon) + ":"));
     }
 
     Grade gradeOf(String symbol, String horizon) {

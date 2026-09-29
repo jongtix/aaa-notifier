@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -17,6 +18,11 @@ public class RedisFilterStateStore implements FilterStateStore {
     private static final String CONFIDENCE = "confidence";
     private static final String TRADE_DATE = "trade_date";
     private static final String TRACE_ID = "trace_id";
+    private static final String FROM = "from";
+    private static final String TO = "to";
+    private static final String COUNT = "count";
+    private static final String LAST_REASON = "last_reason";
+    private static final int MAX_TIER = 3;
 
     private final StringRedisTemplate redisTemplate;
 
@@ -66,5 +72,71 @@ public class RedisFilterStateStore implements FilterStateStore {
                                 CONFIDENCE, snapshot.confidence().toPlainString(),
                                 TRADE_DATE, snapshot.tradeDate().toString(),
                                 TRACE_ID, snapshot.traceId() == null ? "" : snapshot.traceId()));
+    }
+
+    @Override
+    public Optional<PendingTransition> pending(String symbol, String horizon) {
+        Map<Object, Object> fields =
+                redisTemplate.opsForHash().entries(FilterKeys.confirm(symbol, horizon));
+        Optional<Grade> from = Grade.parse((String) fields.get(FROM));
+        Optional<Grade> to = Grade.parse((String) fields.get(TO));
+        if (from.isEmpty() || to.isEmpty()) {
+            return Optional.empty();
+        }
+        String reason = (String) fields.get(LAST_REASON);
+        return Optional.of(
+                new PendingTransition(
+                        from.get(),
+                        to.get(),
+                        Integer.parseInt((String) fields.getOrDefault(COUNT, "0")),
+                        reason == null || reason.isEmpty()
+                                ? null
+                                : SuppressionReason.valueOf(reason)));
+    }
+
+    @Override
+    public void savePending(
+            String symbol, String horizon, PendingTransition pending, Duration ttl) {
+        String key = FilterKeys.confirm(symbol, horizon);
+        redisTemplate
+                .opsForHash()
+                .putAll(
+                        key,
+                        Map.of(
+                                FROM, pending.from().name(),
+                                TO, pending.to().name(),
+                                COUNT, Integer.toString(pending.count()),
+                                LAST_REASON,
+                                        pending.lastReason() == null
+                                                ? ""
+                                                : pending.lastReason().name()));
+        redisTemplate.expire(key, ttl);
+    }
+
+    @Override
+    public void clearPending(String symbol, String horizon) {
+        redisTemplate.delete(FilterKeys.confirm(symbol, horizon));
+    }
+
+    @Override
+    public Optional<Grade> cooldown(String symbol, String horizon, int tier) {
+        return Grade.parse(
+                redisTemplate.opsForValue().get(FilterKeys.cooldown(symbol, horizon, tier)));
+    }
+
+    @Override
+    public void startCooldown(
+            String symbol, String horizon, int tier, Grade toGrade, Duration duration) {
+        redisTemplate
+                .opsForValue()
+                .set(FilterKeys.cooldown(symbol, horizon, tier), toGrade.name(), duration);
+    }
+
+    @Override
+    public void clearCooldowns(String symbol, String horizon) {
+        redisTemplate.delete(
+                IntStream.rangeClosed(1, MAX_TIER)
+                        .mapToObj(tier -> FilterKeys.cooldown(symbol, horizon, tier))
+                        .toList());
     }
 }

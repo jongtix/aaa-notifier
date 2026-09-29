@@ -81,6 +81,20 @@ notifier:
       close-exclusion: 10m
       # [5] ATR 가드: 당일 누적 변동폭(고가-저가)이 ATR(14)의 이 배수를 넘으면 변동성 과열로 억제(REQ-022).
       atr-multiplier: 2.5
+    confirm:
+      # 전환 유형별 확증 횟수(가드를 통과한 연속 감지 수) — 직접 < HOLD 이탈 < HOLD 진입(REQ-032). ※칸은 동시 성립 유형 값을 쓴다(REQ-042).
+      direct: 2       # [6]
+      hold-exit: 3    # [7]
+      hold-entry: 5   # [8]
+    cooldown:
+      # 같은 종목·horizon·Tier 재전환 억제 시간 — 직접(없음) < HOLD 이탈 < HOLD 진입(REQ-032/034). 장 시작 시 초기화된다.
+      direct: 0m      # [9] TECHSPEC §8.3 "긴급도 높음, 없음"
+      hold-exit: 10m  # [10]
+      hold-entry: 30m # [11]
+      # Tier 1 순수 강도 강화(BUY→STRONG_BUY 등) 같은 방향 반복 억제(REQ-035).
+      tier1-repeat: 20m
+      # Tier 3 강도 완화(STRONG_BUY→BUY 등). plan.md §F 표에 없는 값 — design.md §4 M5 확인 사항에 따라 HOLD 이탈과 같은 '짧음' 등급으로 잠정.
+      tier3-weakening: 10m
 
 logging:
   pattern:

@@ -36,11 +36,8 @@ class FilterPipelineBandTest {
     }
 
     private FilterPipeline pipeline(ReferenceDataHolder holder) {
-        return new FilterPipeline(
-                holder,
-                store,
-                FilterMetrics.create(registry),
-                FilterTestFixtures.DOMESTIC_SESSION_CLOCK);
+        return FilterPipelines.create(
+                holder, store, decision -> {}, registry, FilterTestFixtures.DOMESTIC_SESSION_CLOCK);
     }
 
     private double stageCount(String stage, String outcome) {
@@ -169,10 +166,11 @@ class FilterPipelineBandTest {
                                                 FilterTestFixtures.band(
                                                         "100.0000", "121.5000", Grade.BUY)))));
         FilterPipeline pipeline =
-                new FilterPipeline(
+                FilterPipelines.create(
                         holderOf(aapl),
                         store,
-                        FilterMetrics.create(registry),
+                        decision -> {},
+                        registry,
                         FilterTestFixtures.OVERSEAS_SESSION_CLOCK);
         store.setGrade("AAPL", "D20", Grade.HOLD, Duration.ofHours(1));
 
@@ -209,10 +207,11 @@ class FilterPipelineBandTest {
                         bd("2"),
                         Map.of("D20", FilterTestFixtures.uniformBands(Grade.BUY)));
         FilterPipeline pipeline =
-                new FilterPipeline(
+                FilterPipelines.create(
                         holderOf(aapl),
                         store,
-                        FilterMetrics.create(registry),
+                        decision -> {},
+                        registry,
                         FilterTestFixtures.OVERSEAS_SESSION_CLOCK);
         store.setGrade("AAPL", "D20", Grade.HOLD, Duration.ofHours(1));
 
@@ -252,12 +251,13 @@ class FilterPipelineBandTest {
     void afterClose_isIgnored() {
         // Arrange
         FilterPipeline pipeline =
-                new FilterPipeline(
+                FilterPipelines.create(
                         holderOf(
                                 domesticReference(
                                         Map.of("D20", FilterTestFixtures.uniformBands(Grade.BUY)))),
                         store,
-                        FilterMetrics.create(registry),
+                        decision -> {},
+                        registry,
                         FilterTestFixtures.OVERSEAS_SESSION_CLOCK); // 23:00 KST = 국내 마감 후
 
         // Act
