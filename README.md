@@ -4,7 +4,7 @@ AAA(Algorithmic Alpha Advisor) Phase 3 알림 서비스.
 
 analyzer가 발행하는 `stream:signal:*`와 collector가 발행하는 `stream:tick:*` Redis Streams를 구독해, 6단계 필터 파이프라인(밴드 판정·히스테리시스·확증·쿨다운·confidence·Tier)을 거친 뒤 매매봇 텔레그램 발송, `notification_log` INSERT, `stream:alert` 발행까지 수행하는 것이 최종 목표다.
 
-> 이 레포의 현재 범위는 SPEC-NOTIFIER-FOUNDATION-001(레포·프로세스·CI 골격), SPEC-NOTIFIER-CONSUMER-001(Redis Streams 소비 계층), SPEC-NOTIFIER-FILTER-001(6단계 필터 파이프라인 + `notification_log` DRYRUN 기록)이다. 필터 결정은 아직 발송하지 않고 `event_type='DRYRUN'` 행으로만 남긴다. 텔레그램 발송·리포트·메트릭 정의는 후속 SPEC(TELEGRAM/REPORT/OBSV) 소관이며 아직 구현되어 있지 않다.
+> 이 레포의 현재 범위는 SPEC-NOTIFIER-FOUNDATION-001(레포·프로세스·CI 골격), SPEC-NOTIFIER-CONSUMER-001(Redis Streams 소비 계층), SPEC-NOTIFIER-FILTER-001(6단계 필터 파이프라인 + `notification_log` DRYRUN 기록), SPEC-NOTIFIER-TELEGRAM-001(매매봇 텔레그램 실발송 능력)이다. 실발송 모드는 기본 꺼짐이라 필터 결정은 여전히 `event_type='DRYRUN'` 행으로만 남는다 — 드라이런 검토를 마친 운영자가 켤 때 비로소 텔레그램으로 나간다. 리포트·경보 룰은 후속 SPEC(REPORT/OBSV) 소관이며 아직 구현되어 있지 않다.
 
 ## 기술 스택
 
@@ -17,13 +17,14 @@ analyzer가 발행하는 `stream:signal:*`와 collector가 발행하는 `stream:
 | Micrometer | `/actuator/prometheus` 노출 |
 | Gradle | Kotlin DSL |
 
-SPEC-NOTIFIER-FILTER-001부터 MySQL에 접근한다(JdbcTemplate, `notifier` 계정) — 장전 참조 데이터 SELECT(`stocks`·`daily_ohlcv`·`signal_price_bands`)와 `notification_log` DRYRUN INSERT만 수행한다. JPA·Flyway는 도입하지 않으며, DDL은 collector Flyway가 소유한다(ADR-016).
+SPEC-NOTIFIER-FILTER-001부터 MySQL에 접근한다(JdbcTemplate, `notifier` 계정) — 장전 참조 데이터 SELECT(`stocks`·`daily_ohlcv`·`signal_price_bands`)와 `notification_log` INSERT만 수행한다(실발송 모드가 꺼져 있으면 DRYRUN 행, 켜져 있으면 발송 사건 행 — 아래 텔레그램 실발송 절). JPA·Flyway는 도입하지 않으며, DDL은 collector Flyway가 소유한다(ADR-016).
 
 ## 전제조건
 
 - Java 21
 - 실행 시 Redis 접속 정보 환경변수: `REDIS_HOST`, `REDIS_PORT`, `REDIS_APPUSER_USERNAME`, `REDIS_APPUSER_PASSWORD` (`src/main/resources/application.yml`의 `${...}` 자리)
 - 실행 시 MySQL 접속 정보 환경변수: `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_NOTIFIER_PASSWORD`
+- 실발송 모드를 켤 때만 필요한 환경변수: `NOTIFIER_TELEGRAM_ENABLED=true`, `TELEGRAM_TRADE_BOT_TOKEN`, `TELEGRAM_TRADE_CHAT_ID` (꺼져 있으면 비어 있어도 기동한다. 켜졌는데 비어 있으면 기동 실패)
 - 통합 테스트(`@Tag("integration")`)는 Testcontainers로 Redis 컨테이너를 띄우므로 컨테이너 런타임이 필요하다
 
 ## Quick Start
@@ -74,9 +75,57 @@ SPEC-NOTIFIER-FILTER-001부터 MySQL에 접근한다(JdbcTemplate, `notifier` �
 | `error-backoff` | `5s` | 일시적 오류 후 재시도까지의 대기 시간 |
 | `dlq-max-len` | `500` | DLQ 길이 상한 |
 
+## 텔레그램 실발송 (SPEC-NOTIFIER-TELEGRAM-001)
+
+필터 파이프라인의 결정 싱크 포트(`AlertDecisionSink`)를 매매봇 실발송 구현으로 대체한다. **실발송 모드는 기본 꺼짐**이며, 꺼져 있으면 `telegram` 패키지의 빈이 하나도 올라오지 않고 FILTER-001의 DRYRUN 싱크가 그대로 쓰인다(텔레그램·대기 큐·safe_mode·`stream:alert` 모두 미사용).
+
+켜져 있을 때의 흐름:
+
+- 발송 후보만 보낸다. 억제 결정은 WARN 구조화 로그와 계측만 남기고 `notification_log` 행을 쓰지 않는다.
+- 결정 수신은 텔레그램 응답을 기다리지 않는다. 단일 디스패처가 같은 chat_id에 최소 1초 간격으로 `sendMessage`를 보낸다. 인라인 버튼은 붙이지 않는다(Phase 4 trader 소관).
+- 응답 처리: 성공 → `SENT` 행 + `stream:alert` 발행 / 429 → `retry_after`만큼 대기 후 재발송(상한 초과 시 대기 큐) / 5xx·타임아웃 → 백오프 재시도 후 대기 큐 + `QUEUED` / 429 외 4xx → `SEND_FAILED`, 재시도 없음.
+- 대기 큐(`queue:telegram:pending`)에 쌓인 알림은 복구 후 요약 1건(`SUMMARY_SENT`)으로 보낸다. 24시간을 넘긴 항목은 폐기한다.
+
+### safe_mode (`safe_mode:notifier:telegram`)
+
+| 값 | 쓰는 주체 | 동작 |
+|----|-----------|------|
+| `OFF` 또는 키 없음 | 운영자·notifier | 정상 발송 |
+| `AUTO` | notifier(연속 실패 N건) | 발송 중단, 후보는 대기 큐에 쌓임. 1분 cron `getMe` 프로브 성공 시 notifier가 스스로 `OFF`로 해제 |
+| `ON` | 운영자(kill switch) | 발송 중단, 후보는 `DRYRUN` 행으로만 기록. 해제 후에도 재전달·요약 없음. 프로브를 보내지 않으며 운영자만 해제 |
+
+값은 공백·대소문자를 무시하고 비교하며, 세 값 외의 값(`1`·`true`·빈 문자열 등)은 `ON`으로 간주한다(WARN 로그). 재기동 없이 반영된다.
+
+```bash
+# kill switch 켜기 / 끄기 (redis-cli)
+SET safe_mode:notifier:telegram ON
+SET safe_mode:notifier:telegram OFF   # 또는 DEL safe_mode:notifier:telegram
+```
+
+### 설정
+
+`application.yml`의 `notifier.telegram.*`이며, 수치는 전부 잠정값이다.
+
+| 키 | 기본값 | 의미 |
+|----|--------|------|
+| `enabled` | `false` | 실발송 모드 (`NOTIFIER_TELEGRAM_ENABLED`) |
+| `bot-token` / `chat-id` | (빈 값) | `TELEGRAM_TRADE_BOT_TOKEN` / `TELEGRAM_TRADE_CHAT_ID` |
+| `min-send-interval` | `1s` | 같은 chat_id 연속 요청 최소 간격 |
+| `connect-timeout` / `read-timeout` | `3s` / `10s` | HTTP 타임아웃 |
+| `dispatch-buffer-capacity` | `100` | 디스패치 버퍼 상한(초과분은 대기 큐로) |
+| `alert-stream-max-len` | `500` | `stream:alert` 근사 MAXLEN |
+| `retry.transient-retries` | `2` | 일시 오류 재시도 횟수(백오프 `1s` × `2`) |
+| `rate-limit.default-wait` | `5s` | `retry_after`가 없는 429의 대기 |
+| `rate-limit.max-cumulative-wait` / `max-resends` | `30s` / `3` | 알림 1건당 429 누적 대기·재발송 상한 |
+| `safe-mode.failure-threshold` | `3` | `AUTO` 자동 진입 연속 실패 건수 |
+| `safe-mode.probe-cron` | `0 * * * * *` | 프로브·요약 계기(cron 전용) |
+| `queue.retention` / `summary-list-limit` | `24h` / `10` | 대기 큐 보존 기간·요약 목록 상한 |
+
 ## 헬스체크·메트릭
 
 `management.endpoints.web.exposure.include`는 `health,prometheus`다. readiness 그룹은 `readinessState`와 `redis`(PING 기반 `RedisPingHealthIndicator`, ADR-015)를 포함한다.
+
+실발송 모드가 켜져 있으면 `notifier.telegram.*` 계측이 추가로 등록된다 — 발송 결과(4분류 × 알림/요약)·발송 지연·대기 큐 길이·safe_mode 상태(출처 구분)·기록/발행/큐 쓰기 실패·큐 항목 폐기(사유 구분). 두 게이지(대기 큐 길이·safe_mode)는 첫 발송 전에도 기동 시 등록된다.
 
 ## 코드 품질 도구
 
@@ -101,7 +150,7 @@ aaa-notifier/
 ├── src/main/java/com/aaa/notifier/
 │   ├── stream/             — Redis Streams 소비 계층 (CONSUMER-001)
 │   ├── filter/             — 필터 파이프라인 + DRYRUN 결정 기록 (FILTER-001)
-│   ├── telegram/           — 텔레그램 발송 (TELEGRAM-001, 패키지 경계만)
+│   ├── telegram/           — 매매봇 실발송·safe_mode·대기 큐·stream:alert (TELEGRAM-001, 기본 꺼짐)
 │   ├── report/             — 리포트 (REPORT-001, 패키지 경계만)
 │   ├── observability/      — 메트릭·알림 룰 (OBSV-001, 패키지 경계만)
 │   └── common/             — health, logging(Trace ID), config, trace

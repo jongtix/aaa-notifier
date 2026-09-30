@@ -10,6 +10,21 @@
 
 ### Added
 
+- 매매봇 텔레그램 실발송 능력 — 기본 꺼짐 (SPEC-NOTIFIER-TELEGRAM-001, AC 16건)
+  - 실발송 모드 `notifier.telegram.enabled`(환경변수 `NOTIFIER_TELEGRAM_ENABLED`, 기본 `false`) 신설. 꺼져 있으면 `telegram` 패키지의 빈이 하나도 올라오지 않고 FILTER-001의 `JdbcDryRunAlertDecisionSink`가 그대로 쓰이며, 텔레그램·대기 큐·safe_mode 키·`stream:alert` 어디에도 손대지 않는다. 따라서 이 변경을 배포해도 운영 동작은 바뀌지 않는다 — 켜는 시점은 드라이런 검토를 마친 운영자가 정한다
+  - `telegram/TelegramAlertDecisionSink` — `AlertDecisionSink` 포트의 실발송 구현체(`TelegramAutoConfiguration`, 실발송 모드가 켜졌을 때만 등록). 필터 파이프라인 코드와 포트 시그니처는 변경하지 않았다(`filter/` diff 0줄). 발송 후보만 발송 경로로 넘기고, 억제 결정은 기존 WARN 구조화 로그와 계측만 남기며 `notification_log` 행을 쓰지 않는다
+  - `telegram/TelegramDispatcher` — 결정 수신과 텔레그램 왕복을 분리하는 단일 디스패처(가상 스레드). 결정 싱크 호출은 텔레그램 응답을 기다리지 않고 반환되며, 같은 chat_id 연속 요청 사이에 최소 간격(1초)을 둔다. 디스패치 버퍼(100건)를 넘는 후보와 정상 종료 시 잔량은 대기 큐로 옮긴다
+  - `telegram/TelegramBotClient` — Spring `RestClient`로 Bot API(`sendMessage`·`getMe`)를 직접 호출한다(봇 라이브러리·WebClient 의존성 추가 없음). 응답을 성공·레이트 리밋(429)·일시 오류(5xx·타임아웃·입출력 오류)·영구 오류(429 외 4xx) 4가지로 분류한다. 인라인 키보드(`reply_markup`)는 붙이지 않는다(버튼은 Phase 4 trader 소관)
+  - `telegram/TelegramMessageFormatter` — HTML 서식 본문. 심볼·horizon(`[단기]`/`[중기]`)·전환 전→후 등급·score(부호 있는 백분율)·confidence·발동 가격·Tier 라벨·저확신 태그를 담고, 동적 값은 이스케이프하며 4096자 이내로 유지한다
+  - 응답 처리 — 429는 `retry_after`(없으면 기본 5초)만큼 기다려 재발송하되 알림 1건당 재발송 3회·누적 대기 30초 상한을 넘으면 대기 큐로 보낸다. 일시 오류는 지수 백오프로 2회 재시도 후 대기 큐로, 영구 오류는 재시도 없이 `SEND_FAILED`로 기록한다
+  - safe_mode(`safe_mode:notifier:telegram`) — 값 `ON`(운영자 kill switch)·`AUTO`(자동 차단기)·`OFF`를 공백·대소문자 무시로 해석하고, 그 밖의 값은 `ON`으로 간주해 WARN을 남긴다. 연속 실패 3건이면 키가 없거나 `OFF`일 때에만 조건부 쓰기(`RedisSafeModeStore`, Lua)로 `AUTO`를 기록한다. `AUTO` 동안에는 발송 후보를 대기 큐에 쌓고, 1분 cron 프로브(`SafeModeProbe`, `getMe`)가 성공하면 값이 여전히 `AUTO`일 때에만 `OFF`로 해제한다. `ON` 동안에는 발송 대신 `DRYRUN` 행만 남기고(버퍼 잔량·재시도 중 후보·종료 잔량 포함), 해제 후에도 재전달·요약하지 않으며 프로브도 보내지 않는다. 운영자는 재기동 없이 Redis `SET`/`DEL`로 켜고 끈다
+  - 대기 큐 `queue:telegram:pending`과 요약(`QueueSummarizer`·`QueueTransfer`) — safe_mode가 꺼지거나 텔레그램 왕복 성공이 관측되면 큐를 FIFO로 읽어 요약 1건("장애 기간 … 미발송 N건" + 목록 최대 10건)을 보낸다. 24시간을 넘긴 항목은 폐기한다. 요약이 4xx로 실패하면 포함 항목을 폐기하고 같은 항목으로 다시 시도하지 않는다
+  - `notification_log` 이벤트 기록(`JdbcNotificationLog`) — `SENT`·`QUEUED`·`SEND_FAILED`(`notification_type='TIMING'`)와 `SUMMARY_SENT`·`SEND_FAILED`(`notification_type='QUEUE_SUMMARY'`), 운영자 kill switch 중의 `DRYRUN`. 요약 행은 시도마다 새 `trace_id`를 쓰고, 원본 알림 `trace_id` 목록은 구조화 로그 1건으로 잇는다. 기록 실패는 발송을 취소하거나 재발송하지 않는다(fail-open). 스키마·권한 변경은 없다(collector V49 허용값 그대로)
+  - `stream:alert` 발행(`RedisAlertPublisher`) — `SENT`가 성립한 개별 알림만 근사 MAXLEN 500으로 발행한다. 필드 13개(`tier`·`stock_id`·`symbol`·`market`·`horizon`·`signal`·`score`·`confidence`·`trade_date`·`notification_type`·`trace_id`·`sent_at`·`telegram_message_id`), 값은 전부 문자열이고 `null`은 빈 문자열이다. 발행 실패는 WARN과 계측만 남긴다
+  - 토큰 보호(`TokenMasker`) — 매매봇 토큰은 모든 오류 경로에서 앞 4자 외 마스킹하며 로그·DB·`stream:alert`·계측 태그에 원문으로 남지 않는다. 시스템봇 토큰은 읽지 않는다. 실발송 모드가 켜졌는데 토큰·chat_id가 비어 있으면 누락된 설정 이름만 밝히고 기동을 실패시킨다
+  - 계측(`TelegramMetrics`, 실발송 모드에서만 등록) — `notifier.telegram.send`(결과 4분류 × 알림/요약)·`send.latency`·`queue.depth`·`safe.mode`(출처 구분, 두 게이지 모두 기동 시 등록)·`record.failure`·`alert.publish.failure`·`queue.write.failure`·`queue.discarded`(사유: 보존 기간 초과/요약 영구 실패)
+  - 수치는 `application.yml`의 `notifier.telegram.*`로 외부화했다(잠정값). `.env.example`에 `NOTIFIER_TELEGRAM_ENABLED`·`TELEGRAM_TRADE_BOT_TOKEN`·`TELEGRAM_TRADE_CHAT_ID`와 운영자 kill switch 절차를 추가했다
+  - 배포 전제: 실발송을 켜기 전에 NAS `.env.notifier`에 매매봇 토큰·chat_id 등록, 라이브 Redis ACL의 `EVAL`·`RPUSH`·`XADD` 허용 확인이 필요하다(자동 테스트는 ACL 없는 Testcontainers Redis에서 돌았다). 실제 텔레그램 API 호출은 아직 한 번도 하지 않았다 — 첫 실발송이 응답 형식의 첫 실측이 된다
 - 필터/게이팅 파이프라인 + `notification_log` DRYRUN 기록 (SPEC-NOTIFIER-FILTER-001, AC 23건)
   - `filter/FilterPipeline` — CONSUMER-001의 `StreamObservationHandler` 포트를 처음으로 실제 동작하게 구현. 체결 틱만 파이프라인을 구동하고, 신호 수신은 `filter:signal` 스냅샷과 confidence 회전 윈도 갱신만 하며, 호가는 해석하지 않는다. 틱 경로에서는 DB를 조회하지 않고 장전 적재 스냅샷만 읽는다
   - 6단계 판정 — 이원 경계(PROMOTE·DEMOTE 파티션) 밴드 판정과 데드존 유효 등급 유지(히스테리시스) → 거래량·시간대(개장 직후·마감 직전)·ATR 과열 가드(`GuardEvaluator`) → 5×5 전환 매트릭스(`TransitionMatrix`)로 Tier(1/2/3)와 전환 유형(직접/HOLD 이탈/HOLD 진입) 분류, 유형별 확증 카운터(순수 강도 강화·완화 칸은 무확증) → 종목·horizon·Tier 단위 쿨다운(`TransitionGate`) → confidence 방향성 약화 시 Tier 구분 없이 강등·억제, 저확신은 표시만(`ConfidencePolicy`). 억제 사유 6종(`SuppressionReason`)
