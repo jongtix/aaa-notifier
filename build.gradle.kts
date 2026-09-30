@@ -18,6 +18,13 @@ java {
     }
 }
 
+// --- Spring Boot BOM 관리 버전 덮어쓰기 (CVE-2026-68497 대응, 2026-09-30) ---
+// 실제 버전 값은 gradle/libs.versions.toml 단일 소스(CLAUDE.md)에서 관리한다 — 여기서는 값을
+// 하드코딩하지 않고 카탈로그를 참조만 한다. 만료 게이트(DependencyVersionOverrideExpiryTest,
+// 2026-12-30)가 지나면, Boot가 이 CVE를 흡수했는지 확인 후 흡수했다면 이 블록 + 카탈로그의
+// jackson2Bom 항목 + 해당 테스트를 함께 제거한다.
+extra["jackson-bom.version"] = libs.versions.jackson2Bom.get() // 실측: jackson-2-bom.version은 무효, 이 키만 유효
+
 // --- JaCoCo 버전 고정 (libs.versions.toml 단일 소스) ---
 jacoco {
     toolVersion = libs.versions.jacoco.get()
