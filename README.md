@@ -4,7 +4,7 @@ AAA(Algorithmic Alpha Advisor) Phase 3 알림 서비스.
 
 analyzer가 발행하는 `stream:signal:*`와 collector가 발행하는 `stream:tick:*` Redis Streams를 구독해, 6단계 필터 파이프라인(밴드 판정·히스테리시스·확증·쿨다운·confidence·Tier)을 거친 뒤 매매봇 텔레그램 발송, `notification_log` INSERT, `stream:alert` 발행까지 수행하는 것이 최종 목표다.
 
-> 이 레포의 현재 범위는 SPEC-NOTIFIER-FOUNDATION-001(레포·프로세스·CI 골격)과 SPEC-NOTIFIER-CONSUMER-001(Redis Streams 소비 계층)이다. 필터 로직·텔레그램 발송·리포트·메트릭 정의는 후속 SPEC(FILTER/TELEGRAM/REPORT/OBSV) 소관이며 아직 구현되어 있지 않다.
+> 이 레포의 현재 범위는 SPEC-NOTIFIER-FOUNDATION-001(레포·프로세스·CI 골격), SPEC-NOTIFIER-CONSUMER-001(Redis Streams 소비 계층), SPEC-NOTIFIER-FILTER-001(6단계 필터 파이프라인 + `notification_log` DRYRUN 기록)이다. 필터 결정은 아직 발송하지 않고 `event_type='DRYRUN'` 행으로만 남긴다. 텔레그램 발송·리포트·메트릭 정의는 후속 SPEC(TELEGRAM/REPORT/OBSV) 소관이며 아직 구현되어 있지 않다.
 
 ## 기술 스택
 
@@ -13,16 +13,17 @@ analyzer가 발행하는 `stream:signal:*`와 collector가 발행하는 `stream:
 | 구성 요소 | 비고 |
 |-----------|------|
 | Java 21 | Virtual Threads 활성화 (`spring.threads.virtual.enabled`) |
-| Spring Boot | Web, Actuator, Data Redis |
+| Spring Boot | Web, Actuator, Data Redis, JDBC |
 | Micrometer | `/actuator/prometheus` 노출 |
 | Gradle | Kotlin DSL |
 
-DB 접근은 없다. JPA·MySQL·Flyway·DataSource는 이를 처음 필요로 하는 후속 SPEC에서 도입한다.
+SPEC-NOTIFIER-FILTER-001부터 MySQL에 접근한다(JdbcTemplate, `notifier` 계정) — 장전 참조 데이터 SELECT(`stocks`·`daily_ohlcv`·`signal_price_bands`)와 `notification_log` DRYRUN INSERT만 수행한다. JPA·Flyway는 도입하지 않으며, DDL은 collector Flyway가 소유한다(ADR-016).
 
 ## 전제조건
 
 - Java 21
 - 실행 시 Redis 접속 정보 환경변수: `REDIS_HOST`, `REDIS_PORT`, `REDIS_APPUSER_USERNAME`, `REDIS_APPUSER_PASSWORD` (`src/main/resources/application.yml`의 `${...}` 자리)
+- 실행 시 MySQL 접속 정보 환경변수: `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_NOTIFIER_PASSWORD`
 - 통합 테스트(`@Tag("integration")`)는 Testcontainers로 Redis 컨테이너를 띄우므로 컨테이너 런타임이 필요하다
 
 ## Quick Start
@@ -37,7 +38,7 @@ DB 접근은 없다. JPA·MySQL·Flyway·DataSource는 이를 처음 필요로 �
 # 전체 검증 — CI 게이트 (Spotless + SpotBugs + PMD + 단위/통합 테스트 + JaCoCo 85% 라인 커버리지)
 ./gradlew check
 
-# 실행 (Redis 접속 환경변수 필요)
+# 실행 (Redis·MySQL 접속 환경변수 필요)
 ./gradlew bootRun
 ```
 
@@ -99,7 +100,7 @@ aaa-notifier/
 ├── scripts/                — Git hook 스크립트 (pre-commit, pre-push)
 ├── src/main/java/com/aaa/notifier/
 │   ├── stream/             — Redis Streams 소비 계층 (CONSUMER-001)
-│   ├── filter/             — 필터 파이프라인 (FILTER-001, 패키지 경계만)
+│   ├── filter/             — 필터 파이프라인 + DRYRUN 결정 기록 (FILTER-001)
 │   ├── telegram/           — 텔레그램 발송 (TELEGRAM-001, 패키지 경계만)
 │   ├── report/             — 리포트 (REPORT-001, 패키지 경계만)
 │   ├── observability/      — 메트릭·알림 룰 (OBSV-001, 패키지 경계만)
