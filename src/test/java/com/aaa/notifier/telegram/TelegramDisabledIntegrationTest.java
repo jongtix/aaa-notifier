@@ -9,6 +9,7 @@ import com.aaa.notifier.filter.AlertDecisionSink;
 import com.aaa.notifier.filter.JdbcDryRunAlertDecisionSink;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -90,9 +91,8 @@ class TelegramDisabledIntegrationTest {
 
         assertThat(rowCount(jdbcTemplate, "DRYRUN")).isEqualTo(2);
         assertThat(STUB.getAllServeEvents()).isEmpty();
-        assertThat(redis.hasKey(RedisPendingQueue.KEY)).isFalse();
-        assertThat(redis.hasKey(RedisSafeModeStore.KEY)).isFalse();
-        assertThat(redis.hasKey(RedisAlertPublisher.KEY)).isFalse();
+        assertThat(List.of(RedisPendingQueue.KEY, RedisSafeModeStore.KEY, RedisAlertPublisher.KEY))
+                .noneMatch(redis::hasKey);
         assertThat(sink).isInstanceOf(JdbcDryRunAlertDecisionSink.class);
     }
 
