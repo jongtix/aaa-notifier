@@ -1,12 +1,19 @@
 /**
- * 텔레그램 발송 클라이언트 패키지 경계(구조적 자리).
+ * 매매봇 텔레그램 실발송 (SPEC-NOTIFIER-TELEGRAM-001).
  *
- * <p>발송 클라이언트 아키텍처는 Spring {@code RestClient} 직접 HTTP 호출 방식으로 확정되어 있다([D-2]) — 3자 텔레그램 봇 라이브러리(미사용
- * Long Polling/Update 파싱 표면 + CVE 노출)는 기각됐다. {@code RestClient}는 이미 spring-web starter에 포함되어 별도
- * 의존성이 없다.
+ * <p>필터 파이프라인의 결정 싱크 포트({@code AlertDecisionSink})를 실발송 구현으로 대체한다. 실발송 모드({@code
+ * notifier.telegram.enabled})는 기본 꺼짐이며, 꺼져 있으면 이 패키지의 빈이 하나도 올라오지 않고 FILTER-001 DRYRUN 싱크가 그대로 쓰인다.
  *
- * <p>단, 본 골격 SPEC(FOUNDATION-001)은 이 아키텍처 선택만 확정하고 {@code sendMessage} 구현·요청/응답 DTO 정의· {@code
- * api-specs/telegram/} 명세 수집은 하지 않는다(REQ-NOTIFIER-FOUNDATION-014). 실제 발송은 TELEGRAM-001 소관이다. 텔레그램 봇
- * 라이브러리 의존성을 추가해서는 안 된다.
+ * <ul>
+ *   <li>{@link com.aaa.notifier.telegram.TelegramBotClient} — Spring {@code RestClient} 직접
+ *       호출([D-2]). 봇 라이브러리· WebClient는 쓰지 않는다. 토큰은 오류 경로 전체에서 마스킹한다.
+ *   <li>{@link com.aaa.notifier.telegram.TelegramDispatcher} — 결정 수신과 텔레그램 왕복을 분리하는 단일 디스패처(페이싱·429
+ *       상한·백오프·safe_mode 자동 진입·요약).
+ *   <li>{@link com.aaa.notifier.telegram.RedisSafeModeStore} — {@code safe_mode:notifier:telegram}
+ *       조건부 쓰기.
+ *   <li>{@link com.aaa.notifier.telegram.SafeModeProbe} — 1분 cron 프로브(AUTO만 해제).
+ * </ul>
+ *
+ * <p>인라인 버튼·콜백 수신은 Phase 4(trader) 소관이다 — 이 패키지는 {@code reply_markup}을 보내지 않는다.
  */
 package com.aaa.notifier.telegram;
