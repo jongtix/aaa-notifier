@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Service Overview
 
-Phase 3 알림 서비스. `stream:signal:*`(analyzer) + `stream:tick:*`(collector) Redis Streams를 구독해 6단계 필터 파이프라인(밴드 판정·히스테리시스·확증·쿨다운·confidence·Tier)을 거쳐 매매봇 텔레그램 발송 + `notification_log` INSERT + `stream:alert` 발행을 수행하는 것이 최종 목표다. 본 레포는 그 목표로 가는 **레포·프로세스·CI 골격**(SPEC-NOTIFIER-FOUNDATION-001)과 그 위의 **Redis Streams 소비 계층**(SPEC-NOTIFIER-CONSUMER-001)까지 구현되어 있으며, 실제 필터 로직·텔레그램 발송·리포트는 전부 후속 SPEC(FILTER/TELEGRAM/REPORT/OBSV) 소관이다.
+Phase 3 알림 서비스. `stream:signal:*`(analyzer) + `stream:tick:*`(collector) Redis Streams를 구독해 6단계 필터 파이프라인(밴드 판정·히스테리시스·확증·쿨다운·confidence·Tier)을 거쳐 매매봇 텔레그램 발송 + `notification_log` INSERT + `stream:alert` 발행을 수행하는 것이 최종 목표다. 본 레포는 그 목표로 가는 **레포·프로세스·CI 골격**(SPEC-NOTIFIER-FOUNDATION-001)과 그 위의 **Redis Streams 소비 계층**(SPEC-NOTIFIER-CONSUMER-001), **6단계 필터 파이프라인 + `notification_log` DRYRUN 기록**(SPEC-NOTIFIER-FILTER-001)까지 구현되어 있다. 필터 결정은 아직 발송하지 않으며, 텔레그램 발송·리포트는 후속 SPEC(TELEGRAM/REPORT/OBSV) 소관이다.
 
 ## Tech Stack
 
 - Java 21, Virtual Threads
 - Spring Boot (버전: `gradle/libs.versions.toml` 참조)
-- Spring Data Redis (Redis 8.6) — 필터 상태 저장소 연결 (실제 `filter:*` 키 접근은 FILTER-001 소관) + Redis Streams 소비(CONSUMER-001: Consumer Group·`XREADGROUP` 수동 폴링 루프)
-- **DB 접근 없음** — notifier는 DDL이 없고 `notification_log` 마이그레이션은 collector Flyway가 소유한다(ADR-016). JPA/MySQL/Flyway/DataSource는 이 골격에 포함되지 않으며, 이를 최초로 필요로 하는 후속 SPEC(FILTER-001 등)에서 도입한다.
+- Spring Data Redis (Redis 8.6) — 필터 상태 저장소(`filter:*` 키, FILTER-001) + Redis Streams 소비(CONSUMER-001: Consumer Group·`XREADGROUP` 수동 폴링 루프)
+- **DB 접근 (FILTER-001부터, 읽기+쓰기)** — JdbcTemplate(`spring-boot-starter-jdbc`) + `mysql-connector-j`, `notifier` 계정. 장전 cron·기동 시 참조 SELECT 3종(`stocks`·`daily_ohlcv`·`signal_price_bands`)과 `notification_log` DRYRUN INSERT만 수행하며, 틱 경로는 DB를 조회하지 않는다. notifier는 DDL이 없고 `notification_log` 마이그레이션은 collector Flyway가 소유한다(ADR-016) — JPA·Flyway는 도입하지 않는다. DB는 fail-open 경로라 `management.health.db.enabled: false`다.
 
 ## Build & Run
 
@@ -31,7 +31,7 @@ Phase 3 알림 서비스. `stream:signal:*`(analyzer) + `stream:tick:*`(collecto
 | 패키지 | 소관 SPEC | 현재 상태 |
 |--------|-----------|-----------|
 | `stream` | CONSUMER-001 | 구현됨 — 4스트림 소비 루프(`stream:tick:*`·`stream:signal:*`)·재소유(`XPENDING`→`XCLAIM`)·DLQ 이관(`stream:dlq:*`, MAXLEN 500 정확 트리밍)·틱/신호 페이로드 파서. 하류는 `StreamObservationHandler` 포트(기본=무동작 구현, FILTER-001이 대체) |
-| `filter` | FILTER-001 | 패키지 경계만 (필터 로직·`filter:*` 키 접근 없음) |
+| `filter` | FILTER-001 | 구현됨 — `StreamObservationHandler` 실구현(`FilterPipeline`, 틱 구동)·장전 참조 적재·`filter:*` 상태·가드/확증/쿨다운/confidence/Tier 판정. 하류는 `AlertDecisionSink` 포트(기본=`JdbcDryRunAlertDecisionSink`, `notification_log` DRYRUN INSERT — TELEGRAM-001이 실발송 구현체로 대체) |
 | `telegram` | TELEGRAM-001 | 패키지 경계만 (아키텍처=Spring RestClient 직접 호출 확정, sendMessage/DTO/명세 없음) |
 | `report` | REPORT-001 | 패키지 경계만 |
 | `observability` | OBSV-001 | 패키지 경계 + actuator prometheus 노출 |
