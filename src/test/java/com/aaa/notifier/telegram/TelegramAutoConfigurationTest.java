@@ -3,6 +3,7 @@ package com.aaa.notifier.telegram;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import com.aaa.notifier.filter.AlertDecisionSink;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -99,6 +100,40 @@ class TelegramAutoConfigurationTest {
                             context -> {
                                 assertThat(context).hasNotFailed();
                                 assertThat(context).hasSingleBean(TelegramProperties.class);
+                            });
+        }
+
+        @Test
+        @DisplayName("AC-02 / REQ-002 — 결정 싱크 빈은 실발송 구현 하나뿐이다 (FILTER-001 DRYRUN 싱크는 빈으로 등록되지 않음)")
+        void enabled_registersSingleTelegramSink() {
+            enabled()
+                    .withPropertyValues(
+                            "notifier.telegram.bot-token=" + TOKEN,
+                            "notifier.telegram.chat-id=" + CHAT_ID)
+                    .run(
+                            context -> {
+                                assertThat(context).hasSingleBean(AlertDecisionSink.class);
+                                assertThat(context.getBean(AlertDecisionSink.class))
+                                        .isInstanceOf(TelegramAlertDecisionSink.class);
+                                assertThat(context)
+                                        .hasSingleBean(TelegramDispatcher.class)
+                                        .hasSingleBean(SafeModeProbe.class)
+                                        .hasSingleBean(TelegramMetrics.class);
+                            });
+        }
+
+        @Test
+        @DisplayName("필터 파이프라인이 꺼져 있으면 실발송 구성도 켜지지 않는다")
+        void filterDisabled_registersNothing() {
+            enabled()
+                    .withPropertyValues(
+                            "notifier.filter.enabled=false",
+                            "notifier.telegram.bot-token=" + TOKEN,
+                            "notifier.telegram.chat-id=" + CHAT_ID)
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThat(context).doesNotHaveBean(TelegramDispatcher.class);
                             });
         }
 

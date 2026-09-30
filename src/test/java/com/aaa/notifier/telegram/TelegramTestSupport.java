@@ -1,5 +1,10 @@
 package com.aaa.notifier.telegram;
 
+import com.aaa.notifier.filter.FilterMetrics;
+import com.aaa.notifier.filter.MarketSession;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.Clock;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /** 텔레그램 패키지 테스트 공용 픽스처 — 설정 값 묶음과 자동 구성 평가 러너. */
@@ -30,8 +35,15 @@ final class TelegramTestSupport {
         };
     }
 
-    /** 자동 구성 평가용 러너. 협력 빈은 호출 쪽이 {@code withBean}으로 채운다. */
+    /**
+     * 자동 구성 평가용 러너 — FILTER-001이 등록하는 {@code FilterMetrics}·{@code Clock}과 Micrometer 레지스트리를 미리
+     * 채운다. Redis·JDBC 템플릿은 호출 쪽이 {@code withBean}으로 채운다.
+     */
     static ApplicationContextRunner contextRunner() {
-        return new ApplicationContextRunner();
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        return new ApplicationContextRunner()
+                .withBean(MeterRegistry.class, () -> registry)
+                .withBean(FilterMetrics.class, () -> FilterMetrics.create(registry))
+                .withBean(Clock.class, () -> Clock.system(MarketSession.KST));
     }
 }

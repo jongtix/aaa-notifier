@@ -4,6 +4,9 @@ import com.aaa.notifier.filter.AlertDecision;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import org.springframework.web.util.HtmlUtils;
 
 /**
@@ -23,6 +26,58 @@ public class TelegramMessageFormatter {
     private static final String ELLIPSIS = "…";
     private static final int PERCENT_SCALE = 2;
     private static final int CONFIDENCE_SCALE = 3;
+    private static final DateTimeFormatter PERIOD = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final DateTimeFormatter LINE_TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+
+    /**
+     * 대기 큐 요약 본문 (TECHSPEC §1.3) — "장애 기간: {시작}~{종료}, 미발송 {N}건" + 목록 최대 {@code listLimit}줄 + 나머지는
+     * 건수만.
+     *
+     * @param start 장애 기간 시작 (포함 항목 중 가장 오래된 적재 시각, KST)
+     * @param end 장애 기간 종료 (요약 생성 시각, KST)
+     * @param count 요약에 포함한 항목 수 (목록 표기분 + 건수 표기분)
+     * @param listed 목록에 표기할 수 있는 항목 (FIFO 순서)
+     * @param listLimit 목록 상한
+     * @return 이스케이프·길이 상한이 적용된 HTML 본문
+     */
+    public String formatSummary(
+            LocalDateTime start,
+            LocalDateTime end,
+            int count,
+            List<QueuedAlert> listed,
+            int listLimit) {
+        StringBuilder text = new StringBuilder(128 + 64 * Math.min(listLimit, listed.size()));
+        text.append("<b>매매봇 발송 장애 요약</b>\n장애 기간: ")
+                .append(escape(start.format(PERIOD)))
+                .append('~')
+                .append(escape(end.format(PERIOD)))
+                .append(", 미발송 ")
+                .append(count)
+                .append('건');
+        int shown = Math.min(listLimit, listed.size());
+        for (QueuedAlert alert : listed.subList(0, shown)) {
+            text.append('\n')
+                    .append(
+                            escape(
+                                    alert.queuedAt() == null
+                                            ? "-"
+                                            : alert.queuedAt().format(LINE_TIME)))
+                    .append(' ')
+                    .append(escape(alert.symbol()))
+                    .append(' ')
+                    .append(horizonLabel(alert.horizon() == null ? "-" : alert.horizon()))
+                    .append(' ')
+                    .append(escape(alert.from()))
+                    .append('→')
+                    .append(escape(alert.to()))
+                    .append(' ')
+                    .append(escape(formatScore(alert.score())));
+        }
+        if (count > shown) {
+            text.append("\n외 ").append(count - shown).append('건');
+        }
+        return truncate(text.toString());
+    }
 
     /**
      * 개별 알림 본문을 만든다.
