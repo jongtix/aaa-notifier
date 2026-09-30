@@ -2,6 +2,7 @@ package com.aaa.notifier.telegram;
 
 import com.aaa.notifier.filter.AlertDecision;
 import com.aaa.notifier.filter.AlertDecisionSink;
+import io.lettuce.core.RedisCommandInterruptedException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -82,13 +83,23 @@ interface TelegramFakes {
 
         final List<Duration> sleeps = new ArrayList<>();
         private final MutableClock clock;
+        private boolean interruptNext;
 
         RecordingSleeper(MutableClock clock) {
             this.clock = clock;
         }
 
+        /** 다음 대기에서 정상 종료 인터럽트를 흉내 낸다 ({@code Thread.sleep}처럼 플래그를 지우고 던진다). */
+        void interruptNextSleep() {
+            this.interruptNext = true;
+        }
+
         @Override
-        public void sleep(Duration duration) {
+        public void sleep(Duration duration) throws InterruptedException {
+            if (interruptNext) {
+                interruptNext = false;
+                throw new InterruptedException("shutdown");
+            }
             sleeps.add(duration);
             clock.advance(duration);
         }
@@ -184,7 +195,8 @@ interface TelegramFakes {
 
         @Override
         public SafeModeReading read() {
-            if (readFails) {
+            // Lettuce처럼 인터럽트된 스레드에서는 명령이 실패한다
+            if (readFails || Thread.currentThread().isInterrupted()) {
                 return SafeModeReading.failed();
             }
             SafeModeReading reading = SafeModeReading.of(value);
@@ -230,6 +242,10 @@ interface TelegramFakes {
 
         @Override
         public void append(QueuedAlert alert) {
+            // Lettuce처럼 인터럽트된 스레드에서는 명령이 실패한다
+            if (Thread.currentThread().isInterrupted()) {
+                throw new RedisCommandInterruptedException(new InterruptedException("interrupted"));
+            }
             items.add(alert);
         }
 

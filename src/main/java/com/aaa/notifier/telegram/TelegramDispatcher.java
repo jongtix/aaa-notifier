@@ -149,8 +149,10 @@ public class TelegramDispatcher implements SmartLifecycle {
             try {
                 attempt = sendLoop.send(text, Channel.ALERT);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                // 이관(Redis 읽기·적재, DB 기록)을 끝낸 뒤에 인터럽트 플래그를 되돌린다 — 플래그가 선 스레드에서는 Lettuce 명령이
+                // 실패해 safe_mode를 OFF로 오인하거나, 적재는 됐는데 QUEUED 행이 빠진다(종료 통합 테스트로 확인)
                 transfer.divert(decision, DivertReason.SHUTDOWN, context.safeMode().read().state());
+                Thread.currentThread().interrupt();
                 return;
             }
             switch (attempt.result()) {
