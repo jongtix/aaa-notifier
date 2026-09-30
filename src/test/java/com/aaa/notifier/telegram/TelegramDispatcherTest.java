@@ -449,6 +449,25 @@ class TelegramDispatcherTest {
         }
 
         @Test
+        @DisplayName(
+                "재시도 대기 중 종료 인터럽트를 받으면 그 후보를 이관을 끝낸 뒤에야 인터럽트 플래그를 되돌린다 — 이관이 인터럽트된 스레드에서 실패하지 않는다")
+        void interruptedDuringBackoff_divertsBeforeRestoringInterrupt() {
+            h.api.always(UNAVAILABLE);
+            h.sleeper.interruptNextSleep();
+            h.dispatcher.submit(TelegramAlerts.candidate("interrupted"));
+
+            h.drain();
+            boolean restored = Thread.interrupted();
+
+            assertThat(restored).as("인터럽트 플래그는 되돌려져야 한다").isTrue();
+            assertThat(h.queue.items)
+                    .singleElement()
+                    .extracting(QueuedAlert::reason)
+                    .isEqualTo("shutdown");
+            assertThat(rows(EventType.QUEUED)).hasSize(1);
+        }
+
+        @Test
         @DisplayName("종료 뒤 도착한 후보는 버퍼에 남기지 않고 곧바로 이관한다")
         void afterShutdown_divertsDirectly() {
             h.dispatcher.drainOnShutdown();
