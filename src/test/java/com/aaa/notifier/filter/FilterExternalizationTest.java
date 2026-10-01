@@ -10,12 +10,27 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.convert.DurationStyle;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.core.io.ClassPathResource;
 
 /**
@@ -116,6 +131,181 @@ class FilterExternalizationTest {
 
         assertThat(notifierDelta).isEqualByComparingTo(analyzerDelta);
     }
+
+    /**
+     * 유지 시간 설정 6키의 외부화·기동 검증 (SPEC-NOTIFIER-FILTER-002 REQ-012/016, AC-11·AC-17).
+     *
+     * <p>기동 검증은 {@code application.yml}의 {@code notifier.filter.*} 값을 그대로 넣은 컨텍스트에서 한 키만 바꾸거나 빼서
+     * 확인한다 — 유지 시간을 다른 값으로 재정의하는 테스트는 이 클래스 하나뿐이다(acceptance.md 품질 게이트).
+     */
+    @Nested
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("유지 시간 설정 (FILTER-002 AC-11/AC-17)")
+    class DwellSettings {
+
+        private static final String DWELL = "notifier.filter.dwell.";
+
+        private static final List<String> DWELL_KEYS =
+                List.of(
+                        "direct",
+                        "hold-exit",
+                        "weakening",
+                        "hold-entry",
+                        "strength-up",
+                        "strong-entry");
+
+        /** {@code application.yml}의 필터 설정에서 {@code overrides}를 덮어쓰고 {@code removed} 키를 뺀 속성 목록. */
+        private static String[] filterProperties(Map<String, String> overrides, String removed) {
+            Properties yaml = applicationYaml();
+            // stringPropertyNames()는 정수 값(lookback-days 등) 키를 빼므로 keySet + getProperty(문자열 변환)로 읽는다
+            Map<String, String> merged =
+                    yaml.keySet().stream()
+                            .map(String::valueOf)
+                            .filter(name -> name.startsWith("notifier.filter."))
+                            .collect(
+                                    Collectors.toMap(
+                                            name -> name,
+                                            yaml::getProperty,
+                                            (first, second) -> first,
+                                            TreeMap::new));
+            merged.putAll(overrides);
+            if (removed != null) {
+                merged.remove(removed); // TreeMap은 null 키를 받지 않는다
+            }
+            return merged.entrySet().stream()
+                    .map(entry -> entry.getKey() + "=" + entry.getValue())
+                    .toArray(String[]::new);
+        }
+
+        private static ApplicationContextRunner runner(String... properties) {
+            return new ApplicationContextRunner()
+                    .withUserConfiguration(FilterPropertiesBinding.class)
+                    .withPropertyValues(properties);
+        }
+
+        private static String failureMessage(Throwable failure) {
+            return NestedExceptionUtils.getMostSpecificCause(failure).getMessage();
+        }
+
+        @Test
+        @DisplayName("AC-11 — 유지 시간 6키가 외부화되어 있고 운영 값으로 기동한다")
+        void dwellKeys_areExternalizedAndBind() {
+            assertThat(applicationYaml())
+                    .containsKeys(DWELL_KEYS.stream().map(key -> DWELL + key).toArray());
+            runner(filterProperties(Map.of(), null))
+                    .run(
+                            context ->
+                                    assertThat(context.getBean(FilterProperties.class).dwell())
+                                            .isEqualTo(FilterPipelines.DWELL));
+        }
+
+        @Test
+        @DisplayName("AC-11 ③ — 테스트 조립 헬퍼의 유지 시간 6개가 application.yml 값과 같다 (N5)")
+        void helperDwell_matchesApplicationYaml() {
+            Properties yaml = applicationYaml();
+            FilterProperties.Dwell helper = FilterPipelines.DWELL;
+
+            assertThat(
+                            DWELL_KEYS.stream()
+                                    .map(
+                                            key ->
+                                                    DurationStyle.detectAndParse(
+                                                            yaml.getProperty(DWELL + key)))
+                                    .toList())
+                    .containsExactly(
+                            helper.direct(),
+                            helper.holdExit(),
+                            helper.weakening(),
+                            helper.holdEntry(),
+                            helper.strengthUp(),
+                            helper.strongEntry());
+        }
+
+        static Stream<Arguments> invalidValues() {
+            return DWELL_KEYS.stream()
+                    .flatMap(
+                            key ->
+                                    Stream.of(
+                                            Arguments.of(key, null),
+                                            Arguments.of(key, "0s"),
+                                            Arguments.of(key, "-1m")));
+        }
+
+        @ParameterizedTest(name = "{0} = {1}")
+        @MethodSource("invalidValues")
+        @DisplayName("AC-11 — 누락·0·음수 유지 시간은 기동을 실패시키고 설정 이름을 밝힌다")
+        void invalidDwell_failsStartupNamingKey(String key, String value) {
+            String[] properties =
+                    value == null
+                            ? filterProperties(Map.of(), DWELL + key)
+                            : filterProperties(Map.of(DWELL + key, value), null);
+
+            runner(properties)
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                assertThat(failureMessage(context.getStartupFailure()))
+                                        .contains(DWELL + key);
+                            });
+        }
+
+        static Stream<Arguments> orderViolations() {
+            return Stream.of(
+                    Arguments.of(
+                            Map.of(DWELL + "direct", "8m"),
+                            List.of(DWELL + "direct(8m)", DWELL + "hold-exit(7m)")),
+                    Arguments.of(
+                            Map.of(DWELL + "weakening", "11m"),
+                            List.of(DWELL + "weakening(11m)", DWELL + "hold-entry(10m)")),
+                    Arguments.of(
+                            Map.of(DWELL + "strength-up", "16m"),
+                            List.of(DWELL + "strength-up(16m)", DWELL + "strong-entry(15m)")),
+                    Arguments.of(
+                            Map.of(DWELL + "direct", "8m", DWELL + "strength-up", "16m"),
+                            List.of(
+                                    DWELL + "direct(8m)",
+                                    DWELL + "hold-exit(7m)",
+                                    DWELL + "strength-up(16m)",
+                                    DWELL + "strong-entry(15m)")));
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("orderViolations")
+        @DisplayName("AC-17 — 순서 세 쌍을 어기면 기동을 거부하고 위반한 쌍의 키·값을 오류 로그와 예외에 남긴다")
+        void orderViolation_failsStartupAndLogsPair(
+                Map<String, String> overrides, List<String> expected, CapturedOutput output) {
+            runner(filterProperties(overrides, null))
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                assertThat(failureMessage(context.getStartupFailure()))
+                                        .contains(expected);
+                            });
+
+            assertThat(output.getOut()).contains("ERROR").contains(expected);
+        }
+
+        static Stream<Arguments> allowedOrders() {
+            return Stream.of(
+                    Arguments.of(Map.of(DWELL + "direct", "7m")),
+                    Arguments.of(Map.of(DWELL + "weakening", "10m")),
+                    Arguments.of(Map.of(DWELL + "strength-up", "15m")),
+                    Arguments.of(Map.of(DWELL + "hold-exit", "8m")));
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("allowedOrders")
+        @DisplayName("AC-17 경계 — 같은 값이거나 세 쌍 밖의 순서(HOLD 이탈 > 강도 완화)만 바뀌면 기동한다")
+        void allowedOrder_starts(Map<String, String> overrides) {
+            runner(filterProperties(overrides, null))
+                    .run(context -> assertThat(context).hasNotFailed());
+        }
+    }
+
+    /** 필터 설정 바인딩만 올리는 최소 구성 — 파이프라인 빈은 Redis·DB 없이 올라가지 않으므로 바인딩 검증만 따로 한다. */
+    @Configuration(proxyBeanMethods = false)
+    @EnableConfigurationProperties(FilterProperties.class)
+    static class FilterPropertiesBinding {}
 
     /** 이 레포의 조상 디렉터리 중 {@code aaa-analyzer}를 형제로 가진 곳을 찾는다(메인 체크아웃·워크트리 모두 대응). */
     private static Optional<Path> locateAnalyzerBoundaries() {

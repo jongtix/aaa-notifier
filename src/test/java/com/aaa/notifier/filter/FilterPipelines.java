@@ -18,6 +18,20 @@ final class FilterPipelines {
 
     static final FilterProperties.Confirm CONFIRM = new FilterProperties.Confirm(2, 3, 5);
 
+    /**
+     * 유지 시간 6종 (SPEC-NOTIFIER-FILTER-002 plan.md §F.1, application.yml과 동일). 테스트는 이 값을 줄이지 않고 체결
+     * 시각으로 시간을 만든다(REQ-012) — {@code FilterExternalizationTest}가 application.yml 값과 같은지 단언한다(AC-11
+     * ③).
+     */
+    static final FilterProperties.Dwell DWELL =
+            new FilterProperties.Dwell(
+                    Duration.ofMinutes(5),
+                    Duration.ofMinutes(7),
+                    Duration.ofMinutes(7),
+                    Duration.ofMinutes(10),
+                    Duration.ofMinutes(10),
+                    Duration.ofMinutes(15));
+
     static final FilterProperties.Cooldown COOLDOWN =
             new FilterProperties.Cooldown(
                     Duration.ZERO,

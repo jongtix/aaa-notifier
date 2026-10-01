@@ -89,6 +89,20 @@ notifier:
       direct: 2       # [6]
       hold-exit: 3    # [7]
       hold-entry: 5   # [8]
+    # 등급 유지 확증 (SPEC-NOTIFIER-FILTER-002) — 전환 후보는 새 유효 등급이 전환 체결(같은 등급 연속 구간의 첫 체결) 시각부터
+    # 아래 시간 이상 끊김 없이 유지돼야 확증을 통과한다. 체결 건수는 확증에 쓰지 않는다(거래량 가드가 얇은 거래를 막는다).
+    # 체결 시각으로 재므로 체결이 없으면 다음 체결이 판정한다. 20칸 대응은 SPEC design.md §3.
+    # 운영 튜닝 대상 — 드라이런 관측 후 보정한다.
+    # 0 이하·누락은 기동 실패. 순서 세 쌍(direct ≤ hold-exit, weakening ≤ hold-entry, strength-up ≤ strong-entry)을
+    # 어겨도 기동 실패하며, 위반한 쌍의 키와 값이 오류 로그에 남는다(같은 값은 허용).
+    # 테스트는 체결 시각으로 시간을 제어하고 이 값을 줄이지 않는다.
+    dwell:
+      direct: 5m         # 매수계↔매도계 직접 전환(STRONG 도착 ※칸 포함)
+      hold-exit: 7m      # 방향 → HOLD
+      weakening: 7m      # STRONG → 같은 방향 비STRONG (Tier 3)
+      hold-entry: 10m    # HOLD → BUY/SELL
+      strength-up: 10m   # BUY → STRONG_BUY, SELL → STRONG_SELL (Tier 1)
+      strong-entry: 15m  # HOLD → STRONG_BUY/STRONG_SELL (Tier 1※)
     cooldown:
       # 같은 종목·horizon·Tier 재전환 억제 시간 — 직접(없음) < HOLD 이탈 < HOLD 진입(REQ-032/034). 장 시작 시 초기화된다.
       direct: 0m      # [9] TECHSPEC §8.3 "긴급도 높음, 없음"
