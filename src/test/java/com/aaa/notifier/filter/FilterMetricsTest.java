@@ -8,7 +8,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.aaa.notifier.stream.Market;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -83,6 +85,59 @@ class FilterMetricsTest {
         assertThat(registry.scrape())
                 .contains(
                         "notifier_filter_stage_total{outcome=\"block\",stage=\"guard_volume\"} 1.0");
+    }
+
+    @Test
+    @DisplayName("FILTER-002 AC-14 — 유지 시간 단계의 통과·차단·무효화가 stage=\"dwell\" 태그로 노출된다 (REQ-015)")
+    void dwellStage_isExposedWithVoidedOutcome() {
+        // Arrange
+        PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        FilterMetrics metrics = FilterMetrics.create(registry);
+
+        // Act
+        metrics.stage(FilterMetrics.Stage.DWELL, FilterMetrics.Outcome.PASS);
+        metrics.stage(FilterMetrics.Stage.DWELL, FilterMetrics.Outcome.BLOCK);
+        metrics.stage(FilterMetrics.Stage.DWELL, FilterMetrics.Outcome.VOIDED);
+
+        // Assert
+        assertThat(registry.scrape())
+                .contains("notifier_filter_stage_total{outcome=\"pass\",stage=\"dwell\"} 1.0")
+                .contains("notifier_filter_stage_total{outcome=\"block\",stage=\"dwell\"} 1.0")
+                .contains("notifier_filter_stage_total{outcome=\"voided\",stage=\"dwell\"} 1.0");
+    }
+
+    @Test
+    @DisplayName(
+            "FILTER-002 AC-14 — 유지 시간 억제 결정은 suppression_reason=\"dwell_pending\" 태그로 센다 (REQ-013)")
+    void dwellPendingDecision_isTaggedDwellPending() {
+        // Arrange
+        PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        FilterMetrics metrics = FilterMetrics.create(registry);
+
+        // Act
+        metrics.decision(
+                new AlertDecision(
+                        1L,
+                        "005930",
+                        Market.DOMESTIC,
+                        "D20",
+                        Grade.HOLD,
+                        Grade.BUY,
+                        2,
+                        TransitionType.HOLD_ENTRY,
+                        null,
+                        null,
+                        false,
+                        new BigDecimal("30000"),
+                        new BigDecimal("30000"),
+                        LocalDate.of(2026, 9, 29),
+                        SuppressionReason.DWELL_PENDING,
+                        "trace"));
+
+        // Assert
+        assertThat(registry.scrape())
+                .contains(
+                        "notifier_filter_decision_total{outcome=\"suppressed\",suppression_reason=\"dwell_pending\"} 1.0");
     }
 
     @Test

@@ -19,6 +19,12 @@ public enum SuppressionReason {
     /** 전환 유형별 확증 횟수 미달 (REQ-033). */
     CONFIRM_PENDING,
 
+    /**
+     * 유지 시간 미충족 — 새 유효 등급이 그 전환 유형의 유지 시간만큼 유지되지 않았다 (SPEC-NOTIFIER-FILTER-002 REQ-013). 후보를 대기시키는
+     * 사유로, 쿨다운과 구별된다.
+     */
+    DWELL_PENDING,
+
     /** 같은 종목·horizon·Tier의 쿨다운 만료 전 (REQ-034). */
     COOLDOWN_ACTIVE,
 
