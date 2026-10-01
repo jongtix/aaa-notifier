@@ -2,6 +2,8 @@ package com.aaa.notifier.telegram;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -75,5 +77,54 @@ class TelegramMessageFormatterTest {
         String text = formatter.formatAlert(TelegramAlerts.withSymbol("X".repeat(5000)));
 
         assertThat(text).hasSizeLessThanOrEqualTo(4096);
+    }
+
+    @Test
+    @DisplayName("W2 — 요약 본문에 이관 사유별 건수 분해 줄이 있다 (safe_mode·buffer_full·rate_limit_cap 혼재)")
+    void formatSummary_breaksDownByDivertReason() {
+        LocalDateTime start = LocalDateTime.of(2026, 9, 29, 9, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 9, 29, 10, 0);
+        List<QueuedAlert> listed =
+                List.of(
+                        QueuedAlert.of(
+                                TelegramAlerts.candidate("t1"), start, DivertReason.SAFE_MODE),
+                        QueuedAlert.of(
+                                TelegramAlerts.candidate("t2"), start, DivertReason.SAFE_MODE),
+                        QueuedAlert.of(
+                                TelegramAlerts.candidate("t3"), start, DivertReason.BUFFER_FULL),
+                        QueuedAlert.of(
+                                TelegramAlerts.candidate("t4"), start, DivertReason.RATE_LIMIT_CAP),
+                        QueuedAlert.of(
+                                TelegramAlerts.candidate("t5"), start, DivertReason.RATE_LIMIT_CAP),
+                        QueuedAlert.of(
+                                TelegramAlerts.candidate("t6"),
+                                start,
+                                DivertReason.RATE_LIMIT_CAP));
+
+        String text = formatter.formatSummary(start, end, listed.size(), listed, 10);
+
+        assertThat(text).contains("세이프모드 2").contains("버퍼 포화 1").contains("429 한도 초과 3");
+    }
+
+    @Test
+    @DisplayName("W2 — 사유가 하나뿐이면 분해 줄도 그 사유 하나만 보여준다")
+    void formatSummary_singleReason_showsOnlyThatReason() {
+        LocalDateTime start = LocalDateTime.of(2026, 9, 29, 9, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 9, 29, 10, 0);
+        List<QueuedAlert> listed =
+                List.of(
+                        QueuedAlert.of(
+                                TelegramAlerts.candidate("t1"),
+                                start,
+                                DivertReason.TRANSIENT_EXHAUSTED));
+
+        String text = formatter.formatSummary(start, end, listed.size(), listed, 10);
+
+        assertThat(text)
+                .contains("일시 오류 소진 1")
+                .doesNotContain("세이프모드")
+                .doesNotContain("버퍼 포화")
+                .doesNotContain("429 한도 초과")
+                .doesNotContain("종료 잔류");
     }
 }

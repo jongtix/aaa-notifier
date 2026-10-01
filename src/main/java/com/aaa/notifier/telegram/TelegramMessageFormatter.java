@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.web.util.HtmlUtils;
 
 /**
@@ -53,7 +54,8 @@ public class TelegramMessageFormatter {
                 .append(escape(end.format(PERIOD)))
                 .append(", 미발송 ")
                 .append(count)
-                .append('건');
+                .append("건\n")
+                .append(reasonBreakdown(listed));
         int shown = Math.min(listLimit, listed.size());
         for (QueuedAlert alert : listed.subList(0, shown)) {
             text.append('\n')
@@ -107,6 +109,45 @@ public class TelegramMessageFormatter {
             text.append("\n⚠ 저확신");
         }
         return truncate(text.toString());
+    }
+
+    /**
+     * 이관 사유별 건수 분해 줄을 만든다 (W2) — 운영자가 실제 장애(일시 오류·429)와 비장애 이관(안전모드·버퍼 포화)을 한눈에 구분하도록 {@link
+     * DivertReason} 선언 순서로 존재하는 사유만 나열한다.
+     */
+    private static String reasonBreakdown(List<QueuedAlert> listed) {
+        int[] counts = new int[DivertReason.values().length];
+        for (QueuedAlert alert : listed) {
+            DivertReason reason = DivertReason.valueOf(alert.reason().toUpperCase(Locale.ROOT));
+            counts[reason.ordinal()]++;
+        }
+        StringBuilder breakdown = new StringBuilder("사유: ");
+        boolean first = true;
+        for (DivertReason reason : DivertReason.values()) {
+            int reasonCount = counts[reason.ordinal()];
+            if (reasonCount == 0) {
+                continue;
+            }
+            if (!first) {
+                breakdown.append(" · ");
+            }
+            breakdown.append(reasonLabel(reason)).append(' ').append(reasonCount);
+            first = false;
+        }
+        return breakdown.toString();
+    }
+
+    /**
+     * 이관 사유의 운영자용 한글 라벨 — safe_mode/buffer_full은 비장애, rate_limit_cap/transient_exhausted는 실제 장애다.
+     */
+    private static String reasonLabel(DivertReason reason) {
+        return switch (reason) {
+            case SAFE_MODE -> "세이프모드";
+            case BUFFER_FULL -> "버퍼 포화";
+            case RATE_LIMIT_CAP -> "429 한도 초과";
+            case TRANSIENT_EXHAUSTED -> "일시 오류 소진";
+            case SHUTDOWN -> "종료 잔류";
+        };
     }
 
     /** {@code D20} → {@code [단기]}, {@code D60} → {@code [중기]}, 그 밖은 원문을 이스케이프해 괄호로 감싼다. */
