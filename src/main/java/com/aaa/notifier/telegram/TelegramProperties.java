@@ -2,6 +2,7 @@ package com.aaa.notifier.telegram;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
@@ -50,13 +51,17 @@ public record TelegramProperties(
     /** chat_id 설정 키. */
     static final String CHAT_ID_KEY = "notifier.telegram.chat-id";
 
+    /** 매매봇 토큰이 쓸 수 있는 문자 집합 — Bot API 토큰 형태({@code <bot_id>:<secret>})를 벗어나면 거부한다 (W1). */
+    private static final Pattern BOT_TOKEN_CHARSET = Pattern.compile("[0-9A-Za-z:_-]+");
+
     /**
      * 실발송 모드에서 토큰·chat_id가 비어 있으면 누락된 설정 이름을 밝히고 실패한다 (REQ-003). 값은 출력하지 않는다.
      *
-     * @throws IllegalStateException 둘 중 하나라도 비어 있을 때
+     * @throws IllegalStateException 둘 중 하나라도 비어 있거나, 토큰에 허용되지 않은 문자가 있을 때
      */
     void requireCredentials() {
         requireNotBlank(botToken, BOT_TOKEN_KEY, "TELEGRAM_TRADE_BOT_TOKEN");
+        requireSafeCharset(botToken, BOT_TOKEN_KEY);
         requireNotBlank(chatId, CHAT_ID_KEY, "TELEGRAM_TRADE_CHAT_ID");
         Objects.requireNonNull(baseUrl, "notifier.telegram.base-url은 필수다");
         Objects.requireNonNull(minSendInterval, "notifier.telegram.min-send-interval은 필수다");
@@ -82,6 +87,16 @@ public record TelegramProperties(
                             + " 설정(환경변수 "
                             + envName
                             + ")이 비어 있다 — 값을 등록하거나 실발송 모드를 끈다");
+        }
+    }
+
+    /** 허용되지 않은 문자가 있으면 실패한다 (W1) — 메시지에는 설정 키 이름만 싣고 값은 출력하지 않는다. */
+    private static void requireSafeCharset(String value, String key) {
+        if (!BOT_TOKEN_CHARSET.matcher(value).matches()) {
+            throw new IllegalStateException(
+                    "실발송 모드(notifier.telegram.enabled=true)에서 "
+                            + key
+                            + " 설정에 허용되지 않은 문자가 있다 ([0-9A-Za-z:_-]만 허용) — 값을 확인한다");
         }
     }
 
