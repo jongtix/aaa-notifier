@@ -8,15 +8,19 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 전환 후보 게이트 — 가드 → 확증 → 쿨다운 → confidence 방향성 → 결정 방출 (REQ-024/031~035/042, design.md §1 2~8단계).
+ * 전환 후보 게이트 — 가드 → 유지 시간 → 쿨다운 → confidence 방향성 → 결정 방출 (REQ-024/034/042, SPEC-NOTIFIER-FILTER-002
+ * REQ-001/007, design.md §2.3).
  *
- * <p><b>억제의 두 종류.</b> 가드 차단·확증 미달은 후보를 <b>대기</b>시킨다 — 후보는 남고 다음 감지에서 다시 평가된다. 쿨다운은 후보를 <b>종결</b>시킨다
- * — 이 전환은 알리지 않는다. 발송 후보가 확정돼도 후보는 종결된다.
+ * <p><b>확증은 유지 시간 하나다.</b> 전환 체결 시각부터 이 체결의 체결 시각까지가 칸의 유지 시간 이상이어야 통과한다 — 체결 건수는 쓰지 않는다. 판정은 체결이
+ * 도착할 때만 일어나며 타이머가 없다(REQ-005).
+ *
+ * <p><b>억제의 두 종류.</b> 가드 차단·유지 시간 미충족은 후보를 <b>대기</b>시킨다 — 후보는 남고 다음 감지에서 다시 평가된다. 쿨다운은 후보를
+ * <b>종결</b>시킨다 — 이 전환은 알리지 않는다. 발송 후보가 확정돼도 후보는 종결된다.
  *
  * <p><b>억제 결정의 방출 빈도.</b> 대기 억제는 사유가 바뀔 때만 결정 객체를 방출한다 — 개장 직후 15분처럼 가드가 수백 틱 동안 이어지는 구간에서 틱마다
  * DRYRUN 행을 남기면 {@code notification_log}가 억제 기록으로 범람한다. 통과·차단 횟수 자체는 단계 카운터가 매 틱 센다.
  */
-// @MX:NOTE: [AUTO] 대기 억제(가드·확증 미달)는 사유가 바뀔 때만 결정을 방출한다 — 틱마다 DRYRUN 행을 남기지 않기 위한 설계 선택
+// @MX:NOTE: [AUTO] 대기 억제(가드·유지 시간 미충족)는 사유가 바뀔 때만 결정을 방출한다 — 틱마다 DRYRUN 행을 남기지 않기 위한 설계 선택
 @RequiredArgsConstructor
 public class TransitionGate {
 
@@ -48,13 +52,14 @@ public class TransitionGate {
             return;
         }
 
-        PendingTransition counted = pending.counted();
-        if (counted.count() < policy.confirmations(cell)) {
-            metrics.stage(Stage.CONFIRM, Outcome.BLOCK);
-            hold(detection, cell, counted, SuppressionReason.CONFIRM_PENDING);
+        // 체결 시각끼리의 차이 — 음수(순서 뒤바뀐 체결)는 미충족, 같으면 통과(REQ-001 "이상", REQ-005)
+        Duration elapsed = Duration.between(pending.since(), detection.tradeAt().toInstant());
+        if (elapsed.compareTo(policy.dwellOf(cell)) < 0) {
+            metrics.stage(Stage.DWELL, Outcome.BLOCK);
+            hold(detection, cell, pending, SuppressionReason.DWELL_PENDING);
             return;
         }
-        metrics.stage(Stage.CONFIRM, Outcome.PASS);
+        metrics.stage(Stage.DWELL, Outcome.PASS);
 
         if (cooldownActive(detection, cell)) {
             metrics.stage(Stage.COOLDOWN, Outcome.BLOCK);

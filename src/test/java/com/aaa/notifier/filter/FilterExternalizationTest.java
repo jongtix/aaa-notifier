@@ -55,15 +55,17 @@ class FilterExternalizationTest {
     }
 
     @Test
-    @DisplayName("AC-11 — 전환 유형별 확증 3종·쿨다운 3종(+Tier1 반복·Tier3 완화)이 외부화 키로 존재한다")
-    void confirmAndCooldown_areExternalized() {
+    @DisplayName(
+            "AC-11 — 쿨다운 3종(+Tier1 반복·Tier3 완화)이 외부화 키로 존재하고, 폐기된 확증 횟수 키는 없다 (FILTER-002 AC-11 ①)")
+    void cooldown_isExternalizedAndConfirmCountsAreGone() {
         Properties yaml = applicationYaml();
 
+        // stringPropertyNames()는 정수 값 키(옛 확증 횟수 2/3/5)를 빼므로 keySet 전체로 본다
+        assertThat(yaml.keySet().stream().map(String::valueOf).toList())
+                .as("Spring은 모르는 키를 조용히 무시하므로 폐기된 notifier.filter.confirm.* 가 남지 않았는지 직접 본다")
+                .noneMatch(name -> name.startsWith("notifier.filter.confirm."));
         assertThat(yaml)
                 .containsKeys(
-                        "notifier.filter.confirm.direct",
-                        "notifier.filter.confirm.hold-exit",
-                        "notifier.filter.confirm.hold-entry",
                         "notifier.filter.cooldown.direct",
                         "notifier.filter.cooldown.hold-exit",
                         "notifier.filter.cooldown.hold-entry",
@@ -72,7 +74,7 @@ class FilterExternalizationTest {
     }
 
     @Test
-    @DisplayName("AC-23 — 11개 그룹(δ·거래량·시간대 2종·ATR·확증 3종·쿨다운 3종)과 부속 키가 전부 외부화되어 있다")
+    @DisplayName("AC-23 — δ·거래량·시간대 2종·ATR·confidence 그룹 키가 전부 외부화되어 있다 (유지 시간·쿨다운은 별도 단언)")
     void allElevenGroups_areExternalized() {
         Properties yaml = applicationYaml();
 

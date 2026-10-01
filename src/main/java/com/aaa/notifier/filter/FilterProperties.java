@@ -19,7 +19,6 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param referenceLoad 장전 적재 설정
  * @param band 밴드 판정 설정
  * @param guard 가드 필터 설정
- * @param confirm 전환 유형별 확증 횟수
  * @param dwell 유지 시간 유형별 유지 시간 (SPEC-NOTIFIER-FILTER-002)
  * @param cooldown 전환 유형별·Tier별 쿨다운
  * @param confidence confidence 방향성·저확신 설정
@@ -30,7 +29,6 @@ public record FilterProperties(
         ReferenceLoad referenceLoad,
         Band band,
         Guard guard,
-        Confirm confirm,
         Dwell dwell,
         Cooldown cooldown,
         Confidence confidence) {
@@ -39,7 +37,6 @@ public record FilterProperties(
         Objects.requireNonNull(referenceLoad, "notifier.filter.reference-load는 필수다");
         Objects.requireNonNull(band, "notifier.filter.band는 필수다");
         Objects.requireNonNull(guard, "notifier.filter.guard는 필수다");
-        Objects.requireNonNull(confirm, "notifier.filter.confirm은 필수다");
         Objects.requireNonNull(dwell, "notifier.filter.dwell은 필수다");
         Objects.requireNonNull(cooldown, "notifier.filter.cooldown은 필수다");
         Objects.requireNonNull(confidence, "notifier.filter.confidence는 필수다");
@@ -92,29 +89,6 @@ public record FilterProperties(
             Objects.requireNonNull(openExclusion, "notifier.filter.guard.open-exclusion은 필수다");
             Objects.requireNonNull(closeExclusion, "notifier.filter.guard.close-exclusion은 필수다");
             Objects.requireNonNull(atrMultiplier, "notifier.filter.guard.atr-multiplier는 필수다");
-        }
-    }
-
-    /**
-     * 전환 유형별 확증 횟수 — 직접 &lt; HOLD 이탈 &lt; HOLD 진입 순으로 엄격(REQ-032). ※칸도 동시 성립 유형의 값을 쓴다(REQ-042).
-     *
-     * @param direct [6] 직접 전환
-     * @param holdExit [7] HOLD 이탈
-     * @param holdEntry [8] HOLD 진입
-     */
-    public record Confirm(int direct, int holdExit, int holdEntry) {
-
-        public Confirm {
-            if (direct < 1 || holdExit < 1 || holdEntry < 1) {
-                throw new IllegalArgumentException(
-                        "notifier.filter.confirm.* 는 1 이상이어야 한다 (현재 값: direct="
-                                + direct
-                                + ", hold-exit="
-                                + holdExit
-                                + ", hold-entry="
-                                + holdEntry
-                                + ")");
-            }
         }
     }
 

@@ -5,10 +5,13 @@ import static com.aaa.notifier.filter.FilterTestFixtures.domesticTick;
 import static com.aaa.notifier.filter.FilterTestFixtures.holderOf;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("FilterPipeline — 가드·확증·쿨다운 게이트와 결정 방출 (REQ-021~035, AC-7/12/13/14)")
+@DisplayName("FilterPipeline — 가드·유지 확증·쿨다운 게이트와 결정 방출 (REQ-021~035, FILTER-002, AC-7/12/13/14)")
 class FilterPipelineGateTest {
 
     /** 개장 후 60분(가드 시간대 통과) — 기대 누적 거래량 = 1,000,000 × 60/390 × 0.3 ≈ 46,154. */
@@ -48,35 +51,47 @@ class FilterPipelineGateTest {
     }
 
     /** 누적 거래량을 매번 늘려 재전달 멱등 판정에 걸리지 않는 체결. */
-    private void tick(FilterPipeline pipeline, String price) {
+    private void tick(FilterPipeline pipeline, String price, LocalTime time) {
         accumulated += 1_000L;
-        pipeline.onTradeTick(domesticTick(price, TEN, accumulated));
+        pipeline.onTradeTick(domesticTick(price, time, accumulated));
+    }
+
+    private static Instant kst(LocalTime time) {
+        return ZonedDateTime.of(LocalDate.of(2026, 9, 29), time, MarketSession.KST).toInstant();
+    }
+
+    private double dwellStage(String outcome) {
+        Counter counter =
+                registry.find(FilterMetrics.STAGE_COUNTER)
+                        .tag("stage", "dwell")
+                        .tag("outcome", outcome)
+                        .counter();
+        return counter == null ? 0.0 : counter.count();
     }
 
     @Nested
-    @DisplayName("확증 카운터 (REQ-033)")
-    class Confirmation {
+    @DisplayName("유지 확증 (FILTER-002 REQ-001/005/006)")
+    class Dwell {
 
         @Test
-        @DisplayName("HOLD→BUY(HOLD 진입, 확증 5회)는 5번째 연속 감지에서만 발송 후보가 된다")
-        void holdEntry_requiresFiveDetections() {
+        @DisplayName("HOLD→BUY(HOLD 진입, 유지 10분)는 전환 체결 10분 뒤 체결에서만 발송 후보가 된다")
+        void holdEntry_requiresTenMinuteDwell() {
             // Arrange
             FilterPipeline pipeline =
                     pipeline(Map.of("D20", FilterTestFixtures.uniformBands(Grade.BUY)));
             store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
 
             // Act
-            for (int i = 0; i < 4; i++) {
-                tick(pipeline, "30000");
-            }
-            List<AlertDecision> afterFour = List.copyOf(decisions);
-            tick(pipeline, "30000");
+            tick(pipeline, "30000", TEN);
+            tick(pipeline, "30000", TEN.plusMinutes(9).plusSeconds(50));
+            List<AlertDecision> beforeDwell = List.copyOf(decisions);
+            tick(pipeline, "30000", TEN.plusMinutes(10));
 
-            // Assert — 확증 대기 결정은 첫 대기 시점에 1회만 남는다
-            assertThat(afterFour)
+            // Assert — 유지 대기 결정은 첫 대기 시점에 1회만 남는다
+            assertThat(beforeDwell)
                     .singleElement()
                     .extracting(AlertDecision::suppressionReason)
-                    .isEqualTo(SuppressionReason.CONFIRM_PENDING);
+                    .isEqualTo(SuppressionReason.DWELL_PENDING);
             assertThat(decisions).hasSize(2);
             assertThat(decisions.getLast())
                     .extracting(
@@ -88,43 +103,41 @@ class FilterPipelineGateTest {
         }
 
         @Test
-        @DisplayName("AC-12 — 4회 누적 후 확증 완료 전 유효 등급이 바뀌면 카운터가 리셋된다")
-        void gradeChangeBeforeConfirmation_resetsCounter() {
+        @DisplayName("AC-12(FILTER-001) — 유지 확증 전 유효 등급이 바뀌면 새 후보의 측정이 그 교차 체결부터 다시 시작된다")
+        void gradeChangeBeforeDwell_restartsMeasurement() {
             // Arrange
             FilterPipeline pipeline =
                     pipeline(Map.of("D20", FilterTestFixtures.buyStrongBuyBands()));
             store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
-            for (int i = 0; i < 4; i++) {
-                tick(pipeline, "29000"); // 양쪽 BUY — HOLD→BUY 후보 4회
-            }
-            assertThat(store.pending("005930", "D20").orElseThrow().count()).isEqualTo(4);
+            tick(pipeline, "29000", TEN); // 양쪽 BUY — HOLD→BUY 후보, 전환 체결 10:00:00
 
-            // Act — 확증 전에 STRONG_BUY로 전환(29,000 → 30,600은 당일 변동폭 1,600 > ATR×2.5라 ATR 가드에 걸린다)
-            tick(pipeline, "30600");
+            // Act — 유지 확증 전에 STRONG_BUY로 전환(29,000 → 30,600은 당일 변동폭 1,600 > ATR×2.5라 ATR 가드에 걸린다)
+            tick(pipeline, "30600", TEN.plusMinutes(1));
 
-            // Assert — 이전 후보(HOLD→BUY, 4회)는 폐기되고 새 후보(BUY→STRONG_BUY)가 카운터 0에서 시작한다
+            // Assert — 이전 후보(HOLD→BUY)는 버려지고 새 후보(BUY→STRONG_BUY)가 10:01:00부터 잰다
             assertThat(store.gradeOf("005930", "D20")).isEqualTo(Grade.STRONG_BUY);
             PendingTransition pending = store.pending("005930", "D20").orElseThrow();
             assertThat(pending.from()).isEqualTo(Grade.BUY);
             assertThat(pending.to()).isEqualTo(Grade.STRONG_BUY);
-            assertThat(pending.count()).isZero();
+            assertThat(pending.since()).isEqualTo(kst(TEN.plusMinutes(1)));
         }
 
         @Test
-        @DisplayName("대기 중 데드존 체결은 카운터를 올리지도 리셋하지도 않는다")
-        void deadZone_neitherIncrementsNorResets() {
-            // Arrange — HOLD 유효 상태에서 HOLD→BUY 후보 2회 누적
+        @DisplayName("대기 중 데드존 체결은 전환 체결 시각을 바꾸지도 유지 단계를 평가하지도 않는다")
+        void deadZone_neitherResetsNorEvaluates() {
+            // Arrange — HOLD 유효 상태에서 HOLD→BUY 후보(전환 체결 10:00:00)
             FilterPipeline pipeline =
                     pipeline(Map.of("D20", FilterTestFixtures.buyStrongBuyBands()));
             store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
-            tick(pipeline, "29000");
-            tick(pipeline, "29000");
+            tick(pipeline, "29000", TEN);
+            double blocksBefore = dwellStage("block");
 
             // Act
-            tick(pipeline, "30200");
+            tick(pipeline, "30200", TEN.plusMinutes(1));
 
             // Assert
-            assertThat(store.pending("005930", "D20").orElseThrow().count()).isEqualTo(2);
+            assertThat(store.pending("005930", "D20").orElseThrow().since()).isEqualTo(kst(TEN));
+            assertThat(dwellStage("block")).isEqualTo(blocksBefore);
         }
     }
 
@@ -133,22 +146,20 @@ class FilterPipelineGateTest {
     class Cooldown {
 
         @Test
-        @DisplayName("AC-13 — 같은 종목·horizon·Tier 쿨다운 중 재전환은 확증을 통과해도 억제된다")
+        @DisplayName("AC-13 — 같은 종목·horizon·Tier 쿨다운 중 재전환은 유지 확증을 통과해도 억제된다")
         void activeCooldown_suppressesSameTier() {
-            // Arrange — HOLD→SELL 발송(Tier 2 HOLD 진입, 쿨다운 30분) 후 SELL→HOLD→SELL 재진입
+            // Arrange — HOLD→SELL 발송(Tier 2 HOLD 진입, 유지 10분, 쿨다운 30분) 후 SELL→HOLD→SELL 재진입
             FilterPipeline pipeline =
                     pipeline(Map.of("D20", FilterTestFixtures.uniformBands(Grade.SELL)));
             store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
-            for (int i = 0; i < 5; i++) {
-                tick(pipeline, "30000");
-            }
+            tick(pipeline, "30000", TEN);
+            tick(pipeline, "30000", TEN.plusMinutes(10));
             assertThat(decisions.getLast().isCandidate()).isTrue();
             store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
 
             // Act
-            for (int i = 0; i < 5; i++) {
-                tick(pipeline, "30000");
-            }
+            tick(pipeline, "30000", TEN.plusMinutes(11));
+            tick(pipeline, "30000", TEN.plusMinutes(21));
 
             // Assert
             assertThat(decisions.getLast().suppressionReason())
@@ -163,16 +174,14 @@ class FilterPipelineGateTest {
             FilterPipeline pipeline =
                     pipeline(Map.of("D20", FilterTestFixtures.uniformBands(Grade.SELL)));
             store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
-            for (int i = 0; i < 5; i++) {
-                tick(pipeline, "30000");
-            }
+            tick(pipeline, "30000", TEN);
+            tick(pipeline, "30000", TEN.plusMinutes(10));
             store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
 
             // Act — 개장 리셋(장전 cron이 호출하는 경로) 후 재전환
             store.clearCooldowns("005930", "D20");
-            for (int i = 0; i < 5; i++) {
-                tick(pipeline, "30000");
-            }
+            tick(pipeline, "30000", TEN.plusMinutes(11));
+            tick(pipeline, "30000", TEN.plusMinutes(21));
 
             // Assert
             assertThat(decisions.getLast().isCandidate()).isTrue();
@@ -186,9 +195,9 @@ class FilterPipelineGateTest {
                     pipeline(Map.of("D20", FilterTestFixtures.uniformBands(Grade.SELL)));
             store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
 
-            // Act — BUY→SELL 직접 전환(확증 2회)
-            tick(pipeline, "30000");
-            tick(pipeline, "30000");
+            // Act — BUY→SELL 직접 전환(유지 5분)
+            tick(pipeline, "30000", TEN);
+            tick(pipeline, "30000", TEN.plusMinutes(5));
 
             // Assert
             assertThat(decisions.getLast().isCandidate()).isTrue();
@@ -197,34 +206,37 @@ class FilterPipelineGateTest {
     }
 
     @Test
-    @DisplayName("AC-14 — BUY→STRONG_BUY는 1회 감지만으로 확증 없이 Tier 1 발송 후보가 된다")
-    void pureStrengthening_isImmediateTierOne() {
+    @DisplayName(
+            "AC-14(FILTER-001) — BUY→STRONG_BUY는 순수 강도 강화 유지 시간(10분)을 채운 뒤 Tier 1 발송 후보 1건으로 종결된다")
+    void pureStrengthening_isTierOneAfterDwell() {
         // Arrange
         FilterPipeline pipeline =
                 pipeline(Map.of("D20", FilterTestFixtures.uniformBands(Grade.STRONG_BUY)));
         store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
 
         // Act
-        tick(pipeline, "30000");
+        tick(pipeline, "30000", TEN);
+        tick(pipeline, "30000", TEN.plusMinutes(10));
 
-        // Assert
-        assertThat(decisions)
+        // Assert — 교차 직후는 유지 대기, 종결 결정은 발송 후보 1건
+        assertThat(decisions.getFirst().suppressionReason())
+                .isEqualTo(SuppressionReason.DWELL_PENDING);
+        assertThat(decisions.stream().filter(AlertDecision::isCandidate))
                 .singleElement()
                 .satisfies(
                         decision -> {
-                            assertThat(decision.isCandidate()).isTrue();
                             assertThat(decision.tier()).isEqualTo(1);
                             assertThat(decision.transitionType()).isNull();
                         });
     }
 
     @Nested
-    @DisplayName("가드 연동 (REQ-021/024)")
+    @DisplayName("가드 연동 (REQ-021/024, FILTER-002 REQ-009)")
     class Guards {
 
         @Test
-        @DisplayName("AC-7 — 거래량 미달이면 확증 카운터로 진행하지 않고 대기하며 억제 결정은 1회만 남긴다")
-        void volumeGuard_holdsCandidateWithoutCounting() {
+        @DisplayName("AC-7 — 거래량 미달이면 유지 단계로 진행하지 않고 대기하며 억제 결정은 1회만 남긴다")
+        void volumeGuard_holdsCandidateWithoutDwellEvaluation() {
             // Arrange
             accumulated = 0L;
             FilterPipeline pipeline =
@@ -233,7 +245,7 @@ class FilterPipelineGateTest {
 
             // Act — 거래량 미달 체결 3회
             for (int i = 0; i < 3; i++) {
-                tick(pipeline, "30000");
+                tick(pipeline, "30000", TEN.plusSeconds(10L * i));
             }
 
             // Assert
@@ -241,22 +253,22 @@ class FilterPipelineGateTest {
                     .singleElement()
                     .extracting(AlertDecision::suppressionReason)
                     .isEqualTo(SuppressionReason.GUARD_VOLUME);
-            assertThat(store.pending("005930", "D20").orElseThrow().count()).isZero();
+            assertThat(dwellStage("block") + dwellStage("pass")).isZero();
         }
 
         @Test
-        @DisplayName("가드가 풀리면 대기 중이던 후보가 이어서 진행된다")
-        void guardRelease_resumesCandidate() {
+        @DisplayName("가드가 풀리면 대기 중이던 후보가 전환 체결 이후 누적된 유지 시간으로 판정된다")
+        void guardRelease_resumesCandidateWithAccumulatedDwell() {
             // Arrange
             accumulated = 0L;
             FilterPipeline pipeline =
                     pipeline(Map.of("D20", FilterTestFixtures.uniformBands(Grade.STRONG_BUY)));
             store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
-            tick(pipeline, "30000");
+            tick(pipeline, "30000", TEN);
 
-            // Act — 거래량 충족
+            // Act — 거래량 충족, 가드 대기 동안에도 유지 시간이 흘렀다(10:00 → 10:10)
             accumulated = ENOUGH_VOLUME;
-            tick(pipeline, "30000");
+            tick(pipeline, "30000", TEN.plusMinutes(10));
 
             // Assert
             assertThat(decisions.getLast().isCandidate()).isTrue();
@@ -264,8 +276,8 @@ class FilterPipelineGateTest {
     }
 
     @Test
-    @DisplayName("재전달된 체결(누적 거래량 비증가)은 확증 카운터를 두 번 올리지 않는다 (E2)")
-    void redeliveredTick_doesNotDoubleCount() {
+    @DisplayName("재전달된 체결(누적 거래량 비증가)은 게이트를 다시 평가하지 않는다 (E2)")
+    void redeliveredTick_isNotEvaluatedTwice() {
         // Arrange
         FilterPipeline pipeline =
                 pipeline(Map.of("D20", FilterTestFixtures.uniformBands(Grade.BUY)));
@@ -276,7 +288,7 @@ class FilterPipelineGateTest {
         pipeline.onTradeTick(domesticTick("30000", TEN, 200_000L));
 
         // Assert
-        assertThat(store.pending("005930", "D20").orElseThrow().count()).isEqualTo(1);
+        assertThat(dwellStage("block")).isEqualTo(1.0);
     }
 
     @Test
@@ -286,16 +298,21 @@ class FilterPipelineGateTest {
         FilterPipeline pipeline =
                 pipeline(Map.of("D20", FilterTestFixtures.uniformBands(Grade.STRONG_BUY)));
         store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
+        tick(pipeline, "30000", TEN);
 
         // Act
-        tick(pipeline, "30100");
+        tick(pipeline, "30100", TEN.plusMinutes(10));
 
-        // Assert
+        // Assert — 발송 후보임을 먼저 확인한다(대기 억제 결정을 검사하며 조용히 통과하지 않도록, N6)
         AlertDecision decision = decisions.getLast();
-        assertThat(decision.stockId()).isEqualTo(1L);
+        assertThat(decision)
+                .extracting(
+                        AlertDecision::isCandidate,
+                        AlertDecision::stockId,
+                        AlertDecision::tradeDate)
+                .containsExactly(true, 1L, LocalDate.of(2026, 9, 29));
         assertThat(decision.triggerPrice()).isEqualByComparingTo("30100");
         assertThat(decision.prevClose()).isEqualByComparingTo("30000");
-        assertThat(decision.tradeDate()).isEqualTo(LocalDate.of(2026, 9, 29));
         assertThat(decision.traceId()).isNotBlank();
     }
 }

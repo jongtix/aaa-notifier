@@ -22,7 +22,6 @@ public class RedisFilterStateStore implements FilterStateStore {
     private static final String TRACE_ID = "trace_id";
     private static final String FROM = "from";
     private static final String TO = "to";
-    private static final String COUNT = "count";
     private static final String LAST_REASON = "last_reason";
     private static final String SINCE = "since";
     private static final int MAX_TIER = 3;
@@ -92,7 +91,6 @@ public class RedisFilterStateStore implements FilterStateStore {
                 new PendingTransition(
                         from.get(),
                         to.get(),
-                        Integer.parseInt((String) fields.getOrDefault(COUNT, "0")),
                         reason == null || reason.isEmpty()
                                 ? null
                                 : SuppressionReason.valueOf(reason),
@@ -113,7 +111,6 @@ public class RedisFilterStateStore implements FilterStateStore {
                         Map.of(
                                 FROM, pending.from().name(),
                                 TO, pending.to().name(),
-                                COUNT, Integer.toString(pending.count()),
                                 LAST_REASON,
                                         pending.lastReason() == null
                                                 ? ""
