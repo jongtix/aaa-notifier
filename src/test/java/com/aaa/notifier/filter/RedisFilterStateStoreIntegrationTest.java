@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -103,7 +105,12 @@ class RedisFilterStateStoreIntegrationTest {
     void pendingTransition_roundTrips() {
         // Arrange
         PendingTransition pending =
-                new PendingTransition(Grade.HOLD, Grade.BUY, 3, SuppressionReason.CONFIRM_PENDING);
+                new PendingTransition(
+                        Grade.HOLD,
+                        Grade.BUY,
+                        3,
+                        SuppressionReason.CONFIRM_PENDING,
+                        Instant.parse("2026-09-29T01:00:00Z"));
 
         // Act
         store.savePending("005930", "D20", pending, Duration.ofMinutes(30));
@@ -114,6 +121,24 @@ class RedisFilterStateStoreIntegrationTest {
                 .isBetween(1_700L, 1_800L);
         store.clearPending("005930", "D20");
         assertThat(store.pending("005930", "D20")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("FILTER-002 — 전환 체결 시각 필드가 없는 배포 전 형식의 후보는 since 없이 복원된다 (REQ-011)")
+    void legacyPendingWithoutSince_restoresWithNullSince() {
+        // Arrange — 배포 전 형식의 Hash(전환 체결 시각 없음)
+        redisTemplate
+                .opsForHash()
+                .putAll(
+                        FilterKeys.confirm("005930", "D20"),
+                        Map.of("from", "HOLD", "to", "BUY", "count", "3", "last_reason", ""));
+
+        // Act
+        PendingTransition restored = store.pending("005930", "D20").orElseThrow();
+
+        // Assert
+        assertThat(restored.since()).isNull();
+        assertThat(restored.to()).isEqualTo(Grade.BUY);
     }
 
     @Test

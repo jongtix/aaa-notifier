@@ -155,7 +155,11 @@ public class FilterPipeline implements StreamObservationHandler {
         if (agreed != current) {
             stateStore.setGrade(symbol, horizon, agreed, base.untilClose());
             metrics.stage(Stage.BAND, Outcome.TRANSITION);
-            gate.evaluate(withPending(base, PendingTransition.started(current, agreed)));
+            gate.evaluate(
+                    withPending(
+                            base,
+                            PendingTransition.started(
+                                    current, agreed, base.tradeAt().toInstant())));
             return;
         }
         Optional<PendingTransition> pending = stateStore.pending(symbol, horizon);
@@ -167,7 +171,12 @@ public class FilterPipeline implements StreamObservationHandler {
             metrics.pendingClosed(base.reference().market(), symbol, horizon);
             return;
         }
-        gate.evaluate(withPending(base, pending.get()));
+        PendingTransition open = pending.get();
+        if (open.since() == null) {
+            // 배포 전 형식 후보 — 처음 평가하는 체결의 체결 시각을 전환 체결 시각으로 기록한다(SPEC-NOTIFIER-FILTER-002 REQ-011)
+            open = open.withSince(base.tradeAt().toInstant());
+        }
+        gate.evaluate(withPending(base, open));
     }
 
     private static Detection withPending(Detection base, PendingTransition pending) {
