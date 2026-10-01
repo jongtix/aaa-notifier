@@ -4,6 +4,7 @@ import com.aaa.notifier.filter.FilterMetrics.Outcome;
 import com.aaa.notifier.filter.FilterMetrics.Stage;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 
@@ -17,10 +18,13 @@ import lombok.RequiredArgsConstructor;
  * <p><b>억제의 두 종류.</b> 가드 차단·유지 시간 미충족은 후보를 <b>대기</b>시킨다 — 후보는 남고 다음 감지에서 다시 평가된다. 쿨다운은 후보를
  * <b>종결</b>시킨다 — 이 전환은 알리지 않는다. 발송 후보가 확정돼도 후보는 종결된다.
  *
- * <p><b>억제 결정의 방출 빈도.</b> 대기 억제는 사유가 바뀔 때만 결정 객체를 방출한다 — 개장 직후 15분처럼 가드가 수백 틱 동안 이어지는 구간에서 틱마다
- * DRYRUN 행을 남기면 {@code notification_log}가 억제 기록으로 범람한다. 통과·차단 횟수 자체는 단계 카운터가 매 틱 센다.
+ * <p><b>억제 결정의 방출 빈도.</b> 대기 억제는 (전환 쌍, 사유)당 종결 사이 구간에 1건만 방출한다({@code filter:recorded},
+ * SPEC-NOTIFIER-FILTER-002 REQ-014) — 후보 단위로 세면 1틱 교차마다 새 후보가 생겨 중복 제거가 무력화되고 {@code
+ * notification_log}가 억제 기록으로 범람한다(2026-09-30 하루 DRYRUN 504행). 종결 결정은 그 쌍의 이력만 비운다. 통과·차단 횟수 자체는 단계
+ * 카운터가 매 틱 센다.
  */
-// @MX:NOTE: [AUTO] 대기 억제(가드·유지 시간 미충족)는 사유가 바뀔 때만 결정을 방출한다 — 틱마다 DRYRUN 행을 남기지 않기 위한 설계 선택
+// @MX:NOTE: [AUTO] 대기 억제(가드·유지 시간 미충족)는 (전환 쌍, 사유)당 종결 사이 구간 1건만 방출한다 — 후보가 무효화됐다 다시 열려도 같은 구간이면 다시
+// 방출하지 않는다
 @RequiredArgsConstructor
 public class TransitionGate {
 
@@ -100,28 +104,35 @@ public class TransitionGate {
                         || active.get() == detection.pending().to());
     }
 
-    /** 후보를 대기 상태로 남긴다 — 억제 사유가 바뀔 때만 결정을 방출한다. */
+    /** 후보를 대기 상태로 남긴다 — 이 (전환 쌍, 사유)를 이번 종결 사이 구간에서 처음 판정할 때만 결정을 방출한다. */
     private void hold(
             Detection detection,
             TransitionClass cell,
             PendingTransition pending,
             SuppressionReason reason) {
-        boolean reasonChanged = pending.lastReason() != reason;
         stateStore.savePending(
-                detection.symbol(),
-                detection.horizon(),
-                pending.withReason(reason),
-                detection.untilClose());
+                detection.symbol(), detection.horizon(), pending, detection.untilClose());
         metrics.pendingOpened(
                 detection.reference().market(), detection.symbol(), detection.horizon());
-        if (reasonChanged) {
+        if (stateStore.markRecorded(
+                detection.symbol(),
+                detection.horizon(),
+                FilterKeys.recordedMember(pending.from(), pending.to(), reason),
+                detection.untilClose())) {
             sink.onDecision(decision(detection, cell, reason));
         }
     }
 
-    /** 후보를 종결하고 결정을 방출한다. {@code reason}이 {@code null}이면 발송 후보다. */
+    /** 후보를 종결하고 결정을 방출한다. {@code reason}이 {@code null}이면 발송 후보다. 그 전환 쌍의 방출 이력만 비운다(REQ-014). */
     private void close(Detection detection, TransitionClass cell, SuppressionReason reason) {
+        PendingTransition pending = detection.pending();
         stateStore.clearPending(detection.symbol(), detection.horizon());
+        stateStore.clearRecorded(
+                detection.symbol(),
+                detection.horizon(),
+                Arrays.stream(SuppressionReason.values())
+                        .map(each -> FilterKeys.recordedMember(pending.from(), pending.to(), each))
+                        .toList());
         metrics.pendingClosed(
                 detection.reference().market(), detection.symbol(), detection.horizon());
         AlertDecision decision = decision(detection, cell, reason);

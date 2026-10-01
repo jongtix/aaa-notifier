@@ -2,6 +2,7 @@ package com.aaa.notifier.filter;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,6 +54,18 @@ public interface FilterStateStore {
 
     /** 확증 대기 후보를 지운다(발송 후보 확정·억제 확정 시). */
     void clearPending(String symbol, String horizon);
+
+    /**
+     * 대기 억제 방출 이력에 멤버를 더한다 (SPEC-NOTIFIER-FILTER-002 REQ-014, {@code SADD}).
+     *
+     * @param member {@link FilterKeys#recordedMember} — (전환 쌍, 억제 사유)
+     * @param ttl 장 마감까지 남은 시간(양수)
+     * @return 새로 더했으면 {@code true} — 이번 종결 사이 구간에서 이 (쌍, 사유)를 처음 방출한다
+     */
+    boolean markRecorded(String symbol, String horizon, String member, Duration ttl);
+
+    /** 방출 이력에서 주어진 멤버만 지운다 — 종결된 전환 쌍의 이력 초기화({@code SREM}). */
+    void clearRecorded(String symbol, String horizon, Collection<String> members);
 
     /**
      * 진행 중인 쿨다운을 읽는다.

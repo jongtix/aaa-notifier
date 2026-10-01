@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
@@ -105,11 +106,8 @@ class RedisFilterStateStoreIntegrationTest {
     void pendingTransition_roundTrips() {
         // Arrange
         PendingTransition pending =
-                new PendingTransition(
-                        Grade.HOLD,
-                        Grade.BUY,
-                        SuppressionReason.CONFIRM_PENDING,
-                        Instant.parse("2026-09-29T01:00:00Z"));
+                PendingTransition.started(
+                        Grade.HOLD, Grade.BUY, Instant.parse("2026-09-29T01:00:00Z"));
 
         // Act
         store.savePending("005930", "D20", pending, Duration.ofMinutes(30));
@@ -123,14 +121,23 @@ class RedisFilterStateStoreIntegrationTest {
     }
 
     @Test
-    @DisplayName("FILTER-002 — 전환 체결 시각 필드가 없는 배포 전 형식의 후보는 since 없이 복원된다 (REQ-011)")
+    @DisplayName(
+            "FILTER-002 AC-16 — 배포 전 형식의 후보(since 없음, 폐기된 count·last_reason=CONFIRM_PENDING)는 예외 없이 since 없이 복원된다 (REQ-011)")
     void legacyPendingWithoutSince_restoresWithNullSince() {
         // Arrange — 배포 전 형식의 Hash(전환 체결 시각 없음)
         redisTemplate
                 .opsForHash()
                 .putAll(
                         FilterKeys.confirm("005930", "D20"),
-                        Map.of("from", "HOLD", "to", "BUY", "count", "3", "last_reason", ""));
+                        Map.of(
+                                "from",
+                                "HOLD",
+                                "to",
+                                "BUY",
+                                "count",
+                                "3",
+                                "last_reason",
+                                "CONFIRM_PENDING"));
 
         // Act
         PendingTransition restored = store.pending("005930", "D20").orElseThrow();
@@ -138,6 +145,30 @@ class RedisFilterStateStoreIntegrationTest {
         // Assert
         assertThat(restored.since()).isNull();
         assertThat(restored.to()).isEqualTo(Grade.BUY);
+    }
+
+    @Test
+    @DisplayName(
+            "FILTER-002 — filter:recorded는 장 마감 TTL Set이며 새 멤버일 때만 true, 지정한 멤버만 지운다 (REQ-014)")
+    void recordedSet_addsOnceAndRemovesOnlyGivenMembers() {
+        // Arrange
+        String holdBuy =
+                FilterKeys.recordedMember(Grade.HOLD, Grade.BUY, SuppressionReason.DWELL_PENDING);
+        String holdSell =
+                FilterKeys.recordedMember(Grade.HOLD, Grade.SELL, SuppressionReason.DWELL_PENDING);
+
+        // Act
+        boolean first = store.markRecorded("005930", "D20", holdBuy, Duration.ofMinutes(30));
+        boolean second = store.markRecorded("005930", "D20", holdBuy, Duration.ofMinutes(30));
+        store.markRecorded("005930", "D20", holdSell, Duration.ofMinutes(30));
+        store.clearRecorded("005930", "D20", List.of(holdBuy));
+
+        // Assert
+        String key = FilterKeys.recorded("005930", "D20");
+        assertThat(List.of(first, second)).containsExactly(true, false);
+        assertThat(redisTemplate.opsForSet().members(key))
+                .containsExactly("HOLD>SELL:DWELL_PENDING");
+        assertThat(redisTemplate.getExpire(key)).isBetween(1_700L, 1_800L);
     }
 
     @Test

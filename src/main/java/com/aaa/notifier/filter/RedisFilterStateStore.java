@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,7 +23,6 @@ public class RedisFilterStateStore implements FilterStateStore {
     private static final String TRACE_ID = "trace_id";
     private static final String FROM = "from";
     private static final String TO = "to";
-    private static final String LAST_REASON = "last_reason";
     private static final String SINCE = "since";
     private static final int MAX_TIER = 3;
 
@@ -85,15 +85,11 @@ public class RedisFilterStateStore implements FilterStateStore {
         if (from.isEmpty() || to.isEmpty()) {
             return Optional.empty();
         }
-        String reason = (String) fields.get(LAST_REASON);
         String since = (String) fields.get(SINCE);
         return Optional.of(
                 new PendingTransition(
                         from.get(),
                         to.get(),
-                        reason == null || reason.isEmpty()
-                                ? null
-                                : SuppressionReason.valueOf(reason),
                         // 배포 전 형식(전환 체결 시각 없음)은 null — 파이프라인이 첫 평가 체결 시각으로 채운다(REQ-011)
                         since == null || since.isEmpty()
                                 ? null
@@ -108,13 +104,8 @@ public class RedisFilterStateStore implements FilterStateStore {
                 .opsForHash()
                 .putAll(
                         key,
-                        Map.of(
-                                FROM, pending.from().name(),
-                                TO, pending.to().name(),
-                                LAST_REASON,
-                                        pending.lastReason() == null
-                                                ? ""
-                                                : pending.lastReason().name()));
+                        // 배포 전 형식의 폐기 필드(count·last_reason)는 쓰지도 읽지도 않는다(REQ-011 후단)
+                        Map.of(FROM, pending.from().name(), TO, pending.to().name()));
         if (pending.since() != null) {
             redisTemplate
                     .opsForHash()
@@ -126,6 +117,19 @@ public class RedisFilterStateStore implements FilterStateStore {
     @Override
     public void clearPending(String symbol, String horizon) {
         redisTemplate.delete(FilterKeys.confirm(symbol, horizon));
+    }
+
+    @Override
+    public boolean markRecorded(String symbol, String horizon, String member, Duration ttl) {
+        String key = FilterKeys.recorded(symbol, horizon);
+        Long added = redisTemplate.opsForSet().add(key, member);
+        redisTemplate.expire(key, ttl);
+        return added != null && added > 0;
+    }
+
+    @Override
+    public void clearRecorded(String symbol, String horizon, Collection<String> members) {
+        redisTemplate.opsForSet().remove(FilterKeys.recorded(symbol, horizon), members.toArray());
     }
 
     @Override
