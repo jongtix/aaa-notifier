@@ -21,14 +21,15 @@ import lombok.RequiredArgsConstructor;
  * <p><b>틱 수신({@link #onTradeTick})만이 파이프라인의 유일한 구동원이다</b>(REQ-063). 신호 수신은 {@code filter:signal} 상태
  * 갱신만 하고, 호가는 해석하지 않는다(spec.md §3).
  *
- * <p>이 클래스는 1단계 밴드 판정(REQ-011~015)과 확증 대기 후보의 생성·교체를 맡고, 전환 후보가 감지되면 이후 단계(가드 → 확증 → 쿨다운 → 결정)를
+ * <p>이 클래스는 1단계 밴드 판정(REQ-011~015)과 확증 대기 후보의 생성·교체를 맡고, 전환 후보가 감지되면 이후 단계(가드 → 유지 시간 → 쿨다운 → 결정)를
  * {@link TransitionGate}에 넘긴다.
  *
  * <p><b>틱 경로는 DB를 조회하지 않는다</b>(REQ-002) — 참조 데이터·밴드는 장전 적재 스냅샷({@link ReferenceDataHolder})만 읽는다.
  * 소비 스레드에서 동기 호출되며 확인응답(XACK) 이전에 끝나야 한다 — 느려지면 틱 스트림이 트리밍으로 소실된다.
  */
 // @MX:ANCHOR: [AUTO] 틱·신호 관측치의 유일한 필터 진입점 — 소비 워커 4개(스트림별)가 모두 이 구현을 호출한다
-// @MX:REASON: 판정 순서(밴드 → 가드 → 유형 → 확증 → 쿨다운 → confidence → Tier)를 바꾸면 억제 사유·확증 누적이 조용히 달라진다
+// @MX:REASON: 판정 순서(밴드 → 가드 → 유형 → 유지 시간 → 쿨다운 → confidence → Tier)를 바꾸거나 기준 등급 규칙을 건드리면 억제 사유·유지
+// 측정 시작점이 조용히 달라진다
 @RequiredArgsConstructor
 public class FilterPipeline implements StreamObservationHandler {
 
@@ -132,10 +133,13 @@ public class FilterPipeline implements StreamObservationHandler {
     }
 
     /**
-     * 이원 경계 밴드 판정 (REQ-011/014) — 이 판정이 히스테리시스 구현의 전부다(TECHSPEC §8.2).
+     * 이원 경계 밴드 판정 (REQ-011/014, TECHSPEC §8.2).
      *
      * <p>PROMOTE·DEMOTE 두 파티션이 같은 등급을 가리킬 때만 유효 등급을 그 값으로 옮긴다. 불일치 구간(데드존)은 "HOLD로 전환"이 아니라 "현재 유효
-     * 등급 유지"이며, 확증 대기 후보를 올리지도 리셋하지도 않는다. 유효 등급이 바뀌면 새 후보가 이전 후보를 교체한다(REQ-033 리셋).
+     * 등급 유지"이며, 확증 대기 후보를 무효화하지도 유지 측정을 리셋하지도 않는다 — 데드존 체류 시간은 유지 시간에 포함된다(SPEC-NOTIFIER-FILTER-002
+     * REQ-006). 유효 등급이 바뀌면 {@link #onCrossing}이 기준 등급에 맞춰 후보를 무효화·교체·생성한다.
+     *
+     * <p>데드존 폭이 0인 종목에서는 유효 등급이 1틱마다 뒤집힐 수 있다(2026-09-30 실측) — 그 플래핑은 여기서가 아니라 유지 확증이 알림 단에서 흡수한다.
      */
     private void judgeBand(Detection base, HorizonBands bands) {
         String symbol = base.symbol();
@@ -153,13 +157,10 @@ public class FilterPipeline implements StreamObservationHandler {
         }
         Grade agreed = promote.grade();
         if (agreed != current) {
+            // 유효 등급은 유지 확증과 무관하게 즉시 갱신한다(SPEC-NOTIFIER-FILTER-002 REQ-003 후단)
             stateStore.setGrade(symbol, horizon, agreed, base.untilClose());
             metrics.stage(Stage.BAND, Outcome.TRANSITION);
-            gate.evaluate(
-                    withPending(
-                            base,
-                            PendingTransition.started(
-                                    current, agreed, base.tradeAt().toInstant())));
+            onCrossing(base, current, agreed);
             return;
         }
         Optional<PendingTransition> pending = stateStore.pending(symbol, horizon);
@@ -167,8 +168,7 @@ public class FilterPipeline implements StreamObservationHandler {
             return;
         }
         if (pending.get().to() != agreed) {
-            stateStore.clearPending(symbol, horizon); // 유효 등급과 어긋난 묵은 후보
-            metrics.pendingClosed(base.reference().market(), symbol, horizon);
+            voidCandidate(base); // 유효 등급과 어긋난 묵은 후보
             return;
         }
         PendingTransition open = pending.get();
@@ -177,6 +177,43 @@ public class FilterPipeline implements StreamObservationHandler {
             open = open.withSince(base.tradeAt().toInstant());
         }
         gate.evaluate(withPending(base, open));
+    }
+
+    /**
+     * 유효 등급 교차 처리 (SPEC-NOTIFIER-FILTER-002 REQ-002/003/004, design.md §2.2).
+     *
+     * <p>후보의 전환 전 등급은 <b>기준 등급</b>이다 — 열린 후보가 있으면 그 후보의 {@code from}, 없으면 교차 직전 유효 등급. 기준 등급으로 돌아오면
+     * 후보를 결정 없이 무효화하고 역방향 후보를 열지 않는다. 다른 등급으로 가면 후보를 "기준 등급 → 새 등급"으로 교체하고 이 교차 체결부터 다시 잰다. 기준 등급이
+     * 없으면 되돌아온 등급이 역방향 후보가 되어 결국 알림을 만든다(spec.md HISTORY [F-1]).
+     */
+    // @MX:NOTE: [AUTO] 기준 등급 = 열린 후보의 from(없으면 직전 유효 등급) — 새 키 없이 후보 Hash가 기준 등급을 겸한다(종결 시 후보 삭제가
+    // 불변식을 보장)
+    private void onCrossing(Detection base, Grade current, Grade agreed) {
+        Optional<PendingTransition> pending = stateStore.pending(base.symbol(), base.horizon());
+        Optional<PendingTransition> open = pending.filter(candidate -> candidate.to() == current);
+        if (pending.isPresent() && open.isEmpty()) {
+            voidCandidate(base); // 유효 등급과 어긋난 묵은 후보 — 교차 직전 유효 등급을 기준으로 새로 연다
+        }
+        Grade baseline = open.map(PendingTransition::from).orElse(current);
+        if (open.isPresent()) {
+            metrics.stage(Stage.DWELL, Outcome.VOIDED); // 기준 등급 복귀·교체 모두 버려지는 후보다(REQ-015)
+            if (agreed == baseline) {
+                stateStore.clearPending(base.symbol(), base.horizon());
+                metrics.pendingClosed(base.reference().market(), base.symbol(), base.horizon());
+                return;
+            }
+        }
+        gate.evaluate(
+                withPending(
+                        base,
+                        PendingTransition.started(baseline, agreed, base.tradeAt().toInstant())));
+    }
+
+    /** 후보를 결정 없이 버린다(묵은 후보 정리) — 유지 단계 무효화로 센다(REQ-015). */
+    private void voidCandidate(Detection base) {
+        stateStore.clearPending(base.symbol(), base.horizon());
+        metrics.pendingClosed(base.reference().market(), base.symbol(), base.horizon());
+        metrics.stage(Stage.DWELL, Outcome.VOIDED);
     }
 
     private static Detection withPending(Detection base, PendingTransition pending) {
