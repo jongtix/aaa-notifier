@@ -74,6 +74,25 @@ class TelegramAutoConfigurationTest {
         }
 
         @Test
+        @DisplayName("W1 — 토큰에 안전하지 않은 문자가 있으면 설정 키 이름을 밝히고 기동이 실패한다 (값은 노출하지 않음)")
+        void unsafeCharsetToken_failsNamingTokenKey() {
+            String unsafeToken = "123456789:TEST SECRET;VALUE";
+            enabled()
+                    .withPropertyValues(
+                            "notifier.telegram.bot-token=" + unsafeToken,
+                            "notifier.telegram.chat-id=" + CHAT_ID)
+                    .run(
+                            context -> {
+                                assertThat(context).hasFailed();
+                                String message = fullMessage(context.getStartupFailure());
+                                assertThat(message)
+                                        .contains("notifier.telegram.bot-token")
+                                        .doesNotContain(unsafeToken)
+                                        .doesNotContain("SECRET");
+                            });
+        }
+
+        @Test
         @DisplayName("AC-03 ① ② — chat_id만 비어도 같은 방식으로 실패하고 토큰 값은 메시지에 없다")
         void blankChatId_failsNamingChatIdKeyWithoutToken() {
             enabled()
