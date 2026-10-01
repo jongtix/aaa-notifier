@@ -2,6 +2,7 @@ package com.aaa.notifier.filter;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,7 @@ public class RedisFilterStateStore implements FilterStateStore {
     private static final String TO = "to";
     private static final String COUNT = "count";
     private static final String LAST_REASON = "last_reason";
+    private static final String SINCE = "since";
     private static final int MAX_TIER = 3;
 
     private final StringRedisTemplate redisTemplate;
@@ -85,6 +87,7 @@ public class RedisFilterStateStore implements FilterStateStore {
             return Optional.empty();
         }
         String reason = (String) fields.get(LAST_REASON);
+        String since = (String) fields.get(SINCE);
         return Optional.of(
                 new PendingTransition(
                         from.get(),
@@ -92,7 +95,11 @@ public class RedisFilterStateStore implements FilterStateStore {
                         Integer.parseInt((String) fields.getOrDefault(COUNT, "0")),
                         reason == null || reason.isEmpty()
                                 ? null
-                                : SuppressionReason.valueOf(reason)));
+                                : SuppressionReason.valueOf(reason),
+                        // 배포 전 형식(전환 체결 시각 없음)은 null — 파이프라인이 첫 평가 체결 시각으로 채운다(REQ-011)
+                        since == null || since.isEmpty()
+                                ? null
+                                : Instant.ofEpochMilli(Long.parseLong(since))));
     }
 
     @Override
@@ -111,6 +118,11 @@ public class RedisFilterStateStore implements FilterStateStore {
                                         pending.lastReason() == null
                                                 ? ""
                                                 : pending.lastReason().name()));
+        if (pending.since() != null) {
+            redisTemplate
+                    .opsForHash()
+                    .put(key, SINCE, Long.toString(pending.since().toEpochMilli()));
+        }
         redisTemplate.expire(key, ttl);
     }
 

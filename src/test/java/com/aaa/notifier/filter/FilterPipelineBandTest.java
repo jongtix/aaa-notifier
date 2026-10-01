@@ -13,8 +13,10 @@ import com.aaa.notifier.stream.TradeTickObservation;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZonedDateTime;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -231,6 +233,59 @@ class FilterPipelineBandTest {
         // Assert
         assertThat(store.gradeOf("AAPL", "D20")).isEqualTo(Grade.HOLD);
         assertThat(stageCount("band", "skipped_scale_mismatch")).isEqualTo(1.0);
+    }
+
+    @Nested
+    @DisplayName("FILTER-002 — 후보의 전환 체결 시각 (REQ-011)")
+    class TransitionTradeTime {
+
+        private final Instant tenThirty =
+                ZonedDateTime.of(2026, 9, 29, 10, 30, 0, 0, MarketSession.KST).toInstant();
+
+        @Test
+        @DisplayName("교차한 체결의 체결 시각이 새 후보의 전환 체결 시각으로 기록된다")
+        void crossing_recordsTradeTimeAsSince() {
+            // Arrange
+            FilterPipeline pipeline =
+                    pipeline(
+                            holderOf(
+                                    domesticReference(
+                                            Map.of(
+                                                    "D20",
+                                                    FilterTestFixtures.uniformBands(Grade.BUY)))));
+            store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
+
+            // Act
+            pipeline.onTradeTick(domesticTick("30000", TEN_THIRTY, 100_000L));
+
+            // Assert
+            assertThat(store.pending("005930", "D20").orElseThrow().since()).isEqualTo(tenThirty);
+        }
+
+        @Test
+        @DisplayName("전환 체결 시각이 없는 기존 후보는 처음 평가하는 체결의 체결 시각을 기록한다")
+        void legacyCandidateWithoutSince_recordsFirstEvaluatedTradeTime() {
+            // Arrange — 배포 전 형식(전환 체결 시각 없음)의 후보와 그 후보 등급의 유효 등급
+            FilterPipeline pipeline =
+                    pipeline(
+                            holderOf(
+                                    domesticReference(
+                                            Map.of(
+                                                    "D20",
+                                                    FilterTestFixtures.uniformBands(Grade.BUY)))));
+            store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
+            store.savePending(
+                    "005930",
+                    "D20",
+                    new PendingTransition(Grade.HOLD, Grade.BUY, 2, null, null),
+                    Duration.ofHours(1));
+
+            // Act
+            pipeline.onTradeTick(domesticTick("30000", TEN_THIRTY, 100_000L));
+
+            // Assert
+            assertThat(store.pending("005930", "D20").orElseThrow().since()).isEqualTo(tenThirty);
+        }
     }
 
     @Test
