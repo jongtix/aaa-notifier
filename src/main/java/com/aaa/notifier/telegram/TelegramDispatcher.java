@@ -270,13 +270,31 @@ public class TelegramDispatcher implements SmartLifecycle {
             return;
         }
         worker.interrupt();
+        joinWorker(worker, SHUTDOWN_WAIT);
+        drainOnShutdown();
+        log.info("[telegram-dispatch] 디스패처 종료 — 버퍼 잔량 이관 완료");
+    }
+
+    /**
+     * 작업 스레드가 {@code timeout} 안에 끝나길 기다린다. 끝내지 못했으면(worker.isAlive()) 이어지는 {@link
+     * #drainOnShutdown()}이 아직 돌고 있는 작업 스레드와 동시에 safe_mode를 읽게 된다는 뜻이라 WARN으로 남긴다 — 더 깊은 교정(진행 중인
+     * HTTP 호출 취소 등)은 하지 않는다, 관측 가능하게만 만든다(W3, design.md §4.2).
+     *
+     * @param worker 종료 대상 작업 스레드
+     * @param timeout 대기 상한
+     */
+    void joinWorker(Thread worker, Duration timeout) {
         try {
-            worker.join(SHUTDOWN_WAIT);
+            worker.join(timeout.toMillis());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        drainOnShutdown();
-        log.info("[telegram-dispatch] 디스패처 종료 — 버퍼 잔량 이관 완료");
+        if (worker.isAlive()) {
+            log.warn(
+                    "[telegram-dispatch] 종료 대기 {}ms 후에도 작업 스레드가 살아 있다 — drainOnShutdown이 그 스레드와 동시에"
+                            + " safe_mode를 읽을 수 있다",
+                    timeout.toMillis());
+        }
     }
 
     @Override
