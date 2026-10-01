@@ -25,6 +25,19 @@ public final class FilterKeys {
         return "filter:confirm:" + symbol + ":" + horizon;
     }
 
+    /**
+     * 대기 억제 방출 이력 — Set, 멤버 {@link #recordedMember}, 장 마감 만료 (SPEC-NOTIFIER-FILTER-002 REQ-014,
+     * design.md §4).
+     */
+    public static String recorded(String symbol, String horizon) {
+        return "filter:recorded:" + symbol + ":" + horizon;
+    }
+
+    /** 방출 이력 멤버 {@code {기준 등급}>{후보 등급}:{억제 사유}} — 종결 시 사유 enum으로 이름을 만들어 지운다(패턴 스캔 없음). */
+    public static String recordedMember(Grade from, Grade to, SuppressionReason reason) {
+        return from.name() + ">" + to.name() + ":" + reason.name();
+    }
+
     /** Tier별 쿨다운 — 쿨다운 TTL로 자동 만료, 장 시작 시 초기화. */
     public static String cooldown(String symbol, String horizon, int tier) {
         return "filter:cooldown:" + symbol + ":" + horizon + ":" + tier;

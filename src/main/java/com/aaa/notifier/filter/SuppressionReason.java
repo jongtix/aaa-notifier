@@ -1,7 +1,7 @@
 package com.aaa.notifier.filter;
 
 /**
- * 전환 후보가 억제된 사유 (REQ-061 — 가드 차단/확증 미달/쿨다운/약화 강등).
+ * 전환 후보가 억제된 사유 (REQ-061 — 가드 차단/유지 시간 미충족/쿨다운/약화 강등, SPEC-NOTIFIER-FILTER-002 REQ-013).
  *
  * <p>{@code notification_log}에 전용 컬럼이 없으므로 DRYRUN 행에는 남지 않고, 구조화 로그와 {@code suppression_reason} 계측
  * 태그로 보완한다(REQ-062).
@@ -15,9 +15,6 @@ public enum SuppressionReason {
 
     /** 변동성(ATR) 과열 가드 (REQ-022). */
     GUARD_ATR,
-
-    /** 전환 유형별 확증 횟수 미달 (REQ-033). */
-    CONFIRM_PENDING,
 
     /**
      * 유지 시간 미충족 — 새 유효 등급이 그 전환 유형의 유지 시간만큼 유지되지 않았다 (SPEC-NOTIFIER-FILTER-002 REQ-013). 후보를 대기시키는

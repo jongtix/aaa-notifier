@@ -3,9 +3,11 @@ package com.aaa.notifier.filter;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -20,7 +22,15 @@ class InMemoryFilterStateStore implements FilterStateStore {
     final Map<String, Duration> gradeTtls = new ConcurrentHashMap<>();
     final Map<String, SignalSnapshot> signals = new ConcurrentHashMap<>();
     final Map<String, PendingTransition> pendings = new ConcurrentHashMap<>();
+
+    /** 후보 키에 마지막으로 넘겨진 TTL — 키는 {@code 종목코드:horizon}. */
     final Map<String, Duration> pendingTtls = new ConcurrentHashMap<>();
+
+    final Map<String, Set<String>> recorded = new ConcurrentHashMap<>();
+
+    /** 방출 이력 키에 마지막으로 넘겨진 TTL — 키는 {@code 종목코드:horizon}. */
+    final Map<String, Duration> recordedTtls = new ConcurrentHashMap<>();
+
     final Map<String, Grade> cooldowns = new ConcurrentHashMap<>();
     final Map<String, List<BigDecimal>> confidenceWindows = new ConcurrentHashMap<>();
 
@@ -76,6 +86,22 @@ class InMemoryFilterStateStore implements FilterStateStore {
     }
 
     @Override
+    public boolean markRecorded(String symbol, String horizon, String member, Duration ttl) {
+        recordedTtls.put(key(symbol, horizon), ttl);
+        return recorded.computeIfAbsent(
+                        key(symbol, horizon), unused -> ConcurrentHashMap.newKeySet())
+                .add(member);
+    }
+
+    @Override
+    public void clearRecorded(String symbol, String horizon, Collection<String> members) {
+        Set<String> set = recorded.get(key(symbol, horizon));
+        if (set != null) {
+            set.removeAll(members);
+        }
+    }
+
+    @Override
     public Optional<Grade> cooldown(String symbol, String horizon, int tier) {
         return Optional.ofNullable(cooldowns.get(key(symbol, horizon) + ":" + tier));
     }
@@ -114,16 +140,18 @@ class InMemoryFilterStateStore implements FilterStateStore {
         return grades.get(key(symbol, horizon));
     }
 
-    /** 마지막으로 기록된 후보 키의 TTL(장 마감까지 남은 시간). */
-    Duration pendingTtlOf(String symbol, String horizon) {
-        return pendingTtls.get(key(symbol, horizon));
+    /** 대기 억제 방출 이력 멤버(없으면 빈 집합). */
+    Set<String> recordedOf(String symbol, String horizon) {
+        return recorded.getOrDefault(key(symbol, horizon), Set.of());
     }
 
-    /** 장 마감 만료 모사 — 마감 TTL이 걸린 장중 키(유효 등급·후보)를 지운다. 다일 수명 키(신호·confidence)는 남는다. */
+    /** 장 마감 만료 모사 — 마감 TTL이 걸린 장중 키(유효 등급·후보·방출 이력)를 지운다. 다일 수명 키(신호·confidence)는 남는다. */
     void expireIntraday(String symbol, String horizon) {
         grades.remove(key(symbol, horizon));
         gradeTtls.remove(key(symbol, horizon));
         pendings.remove(key(symbol, horizon));
         pendingTtls.remove(key(symbol, horizon));
+        recorded.remove(key(symbol, horizon));
+        recordedTtls.remove(key(symbol, horizon));
     }
 }

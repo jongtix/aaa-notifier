@@ -261,6 +261,28 @@ class FilterPipelineGateTest {
         }
 
         @Test
+        @DisplayName("FILTER-002 REQ-014 — 가드 대기 후보가 무효화됐다가 같은 쌍으로 다시 열려도 같은 가드 사유는 다시 방출하지 않는다")
+        void reopenedCandidate_doesNotReemitSameGuardReason() {
+            // Arrange — 거래량 미달이 이어지는 BUY ↔ STRONG_BUY 교차
+            accumulated = 0L;
+            FilterPipeline pipeline =
+                    pipeline(Map.of("D20", FilterTestFixtures.buyStrongBuyBands()));
+            store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
+
+            // Act — BUY→STRONG_BUY 교차, 기준 등급 BUY 복귀(무효화), 다시 BUY→STRONG_BUY 교차
+            tick(pipeline, "30600", TEN);
+            tick(pipeline, "29000", TEN.plusSeconds(10));
+            tick(pipeline, "30600", TEN.plusSeconds(20));
+
+            // Assert
+            assertThat(decisions)
+                    .singleElement()
+                    .extracting(AlertDecision::suppressionReason)
+                    .isEqualTo(SuppressionReason.GUARD_VOLUME);
+            assertThat(dwellStage("voided")).isEqualTo(1.0);
+        }
+
+        @Test
         @DisplayName("가드가 풀리면 대기 중이던 후보가 전환 체결 이후 누적된 유지 시간으로 판정된다")
         void guardRelease_resumesCandidateWithAccumulatedDwell() {
             // Arrange

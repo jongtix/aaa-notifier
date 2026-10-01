@@ -12,6 +12,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -141,5 +142,64 @@ class FilterPipelineDwellIntegrationTest {
                                 .since())
                 .isEqualTo(
                         ZonedDateTime.of(2026, 9, 29, 10, 0, 0, 0, MarketSession.KST).toInstant());
+    }
+
+    @Test
+    @DisplayName(
+            "AC-16 — 배포 전 형식의 후보(count=3, last_reason=CONFIRM_PENDING, since 없음)를 예외 없이 이어받아 첫 평가 체결부터 잰다")
+    void legacyCandidate_isAdoptedWithoutError() {
+        // Arrange — 배포 전 형식의 Hash와 그 후보 등급의 유효 등급
+        RedisFilterStateStore store = new RedisFilterStateStore(redisTemplate);
+        store.setGrade(SYMBOL, HORIZON, Grade.BUY, Duration.ofHours(1));
+        redisTemplate
+                .opsForHash()
+                .putAll(
+                        FilterKeys.confirm(SYMBOL, HORIZON),
+                        Map.of(
+                                "from",
+                                "HOLD",
+                                "to",
+                                "BUY",
+                                "count",
+                                "3",
+                                "last_reason",
+                                "CONFIRM_PENDING"));
+        FilterPipeline pipeline = startProcess();
+
+        // Act — 10:05:00 첫 체결, 이후 10:15:00까지 10초 간격
+        tick(pipeline, LocalTime.of(10, 5));
+        PendingTransition adopted = store.pending(SYMBOL, HORIZON).orElseThrow();
+        LocalTime firstCandidate = null;
+        for (LocalTime time = LocalTime.of(10, 5, 10);
+                firstCandidate == null && !time.isAfter(LocalTime.of(10, 16));
+                time = time.plusSeconds(10)) {
+            tick(pipeline, time);
+            if (decisions.getLast().isCandidate()) {
+                firstCandidate = time;
+            }
+        }
+
+        // Assert — count·last_reason은 판정에 쓰이지 않는다(HOLD→BUY 10분)
+        assertThat(adopted.since())
+                .isEqualTo(
+                        ZonedDateTime.of(2026, 9, 29, 10, 5, 0, 0, MarketSession.KST).toInstant());
+        assertThat(firstCandidate).isEqualTo(LocalTime.of(10, 15));
+    }
+
+    @Test
+    @DisplayName("AC-13 ⑤ — 대기 억제 방출 이력 키는 장 마감까지 남은 TTL을 갖는다 (PTTL > 0, ≤ 마감까지 남은 시간)")
+    void recordedKey_expiresAtClose() {
+        // Arrange
+        new RedisFilterStateStore(redisTemplate)
+                .setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+
+        // Act — HOLD→BUY 교차(유지 대기 억제 방출)
+        tick(startProcess(), LocalTime.of(10, 0));
+
+        // Assert — 고정 시계 10:00 → 국내 마감 15:30까지 5시간 30분
+        Long ttlMillis =
+                redisTemplate.getExpire(
+                        FilterKeys.recorded(SYMBOL, HORIZON), TimeUnit.MILLISECONDS);
+        assertThat(ttlMillis).isPositive().isLessThanOrEqualTo(Duration.ofMinutes(330).toMillis());
     }
 }

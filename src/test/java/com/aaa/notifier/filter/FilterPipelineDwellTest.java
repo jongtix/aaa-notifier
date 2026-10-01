@@ -560,6 +560,121 @@ class FilterPipelineDwellTest {
                     .as("대기 억제 사유는 쿨다운과 다른 유지 시간 사유")
                     .containsExactly(SuppressionReason.DWELL_PENDING);
             assertThat(store.pending("000660", HORIZON)).isEmpty();
+            assertThat(
+                            decisions.stream()
+                                    .filter(decision -> !decision.isCandidate())
+                                    .map(
+                                            decision ->
+                                                    decision.fromGrade()
+                                                            + ">"
+                                                            + decision.toGrade()))
+                    .as("⑥ 대기 억제 결정은 HOLD>BUY 1건(③은 같은 쌍·사유라 다시 방출하지 않음)과 HOLD>STRONG_BUY 1건")
+                    .containsExactly("HOLD>BUY", "HOLD>STRONG_BUY");
+        }
+    }
+
+    @Nested
+    @DisplayName("AC-13 — 대기 억제는 (전환 쌍, 사유)당 종결 사이 구간 1건, 종결 시 그 쌍만 초기화 (REQ-014)")
+    class SuppressionEmission {
+
+        @Test
+        @DisplayName("① HOLD→BUY 교차와 HOLD 복귀를 20회 반복해도 유지 시간 억제 결정은 1건, 단계 계측은 판정마다 센다")
+        void repeatedReopen_emitsOnce() {
+            // Arrange
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+
+            // Act — 10초마다 BUY ↔ HOLD, BUY 교차 20회
+            for (int i = 0; i < 20; i++) {
+                tick(pipeline, Grade.BUY, TEN.plusSeconds(20L * i));
+                tick(pipeline, Grade.HOLD, TEN.plusSeconds(20L * i + 10));
+            }
+
+            // Assert
+            assertThat(suppressedBy(SuppressionReason.DWELL_PENDING)).isEqualTo(1);
+            assertThat(stageCount("dwell", "block")).isEqualTo(20.0);
+        }
+
+        @Test
+        @DisplayName("③ 종결은 그 쌍의 방출 이력만 비운다 — 다른 쌍 멤버는 남고, 비워진 쌍은 다음 구간에서 다시 방출한다")
+        void closure_clearsOnlyItsPair() {
+            // Arrange — 다른 쌍(HOLD>SELL) 멤버를 미리 기록
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+            store.markRecorded(
+                    SYMBOL,
+                    HORIZON,
+                    FilterKeys.recordedMember(
+                            Grade.HOLD, Grade.SELL, SuppressionReason.DWELL_PENDING),
+                    Duration.ofHours(1));
+
+            // Act — ㉠ HOLD→BUY 10분 유지 → 발송 후보(종결), ㉡ BUY→HOLD 7분 유지 → 쿨다운 억제(종결), ㉢ 다시 HOLD→BUY
+            ticksEvery10s(pipeline, Grade.BUY, TEN, LocalTime.of(10, 10));
+            ticksEvery10s(pipeline, Grade.HOLD, LocalTime.of(10, 11), LocalTime.of(10, 18));
+            List<String> afterSecondClosure = List.copyOf(store.recordedOf(SYMBOL, HORIZON));
+            tick(pipeline, Grade.BUY, LocalTime.of(10, 19));
+
+            // Assert
+            assertThat(suppressedBy(SuppressionReason.COOLDOWN_ACTIVE)).as("㉡ 종결").isEqualTo(1);
+            assertThat(afterSecondClosure)
+                    .as("HOLD>BUY(㉠)·BUY>HOLD(㉡) 이력은 비워지고 HOLD>SELL은 남는다")
+                    .containsExactly("HOLD>SELL:DWELL_PENDING");
+            assertThat(
+                            decisions.stream()
+                                    .filter(
+                                            decision ->
+                                                    decision.suppressionReason()
+                                                                    == SuppressionReason
+                                                                            .DWELL_PENDING
+                                                            && decision.fromGrade() == Grade.HOLD))
+                    .as("㉢ HOLD>BUY 첫 대기 억제가 다시 방출된다")
+                    .hasSize(2);
+        }
+
+        @Test
+        @DisplayName("④ 다른 horizon(D20·D60)은 같은 체결로 교차해도 방출 이력을 따로 센다")
+        void horizons_areCountedIndependently() {
+            // Arrange
+            StockReference single = ladder(Market.DOMESTIC);
+            HorizonBands bands = single.bands().get(HORIZON);
+            FilterPipeline pipeline =
+                    pipeline(
+                            new StockReference(
+                                    1L,
+                                    SYMBOL,
+                                    Market.DOMESTIC,
+                                    FilterTestFixtures.PREV_DAY,
+                                    bd("25000"),
+                                    bd("1000000"),
+                                    bd("1000000"),
+                                    Map.of("D20", bands, "D60", bands)),
+                            FilterTestFixtures.DOMESTIC_SESSION_CLOCK);
+            store.setGrade(SYMBOL, "D20", Grade.HOLD, Duration.ofHours(1));
+            store.setGrade(SYMBOL, "D60", Grade.HOLD, Duration.ofHours(1));
+
+            // Act
+            tick(pipeline, Grade.BUY, TEN);
+            tick(pipeline, Grade.HOLD, LocalTime.of(10, 0, 10));
+            tick(pipeline, Grade.BUY, LocalTime.of(10, 0, 20));
+
+            // Assert
+            assertThat(decisions.stream().map(AlertDecision::horizon).sorted())
+                    .containsExactly("D20", "D60");
+        }
+
+        @Test
+        @DisplayName("⑤ 방출 이력 키에 넘긴 TTL은 장 마감까지 남은 시간이다")
+        void recordedTtl_isUntilClose() {
+            // Arrange
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+
+            // Act
+            tick(pipeline, Grade.BUY, TEN);
+
+            // Assert — 고정 시계 10:00 → 국내 마감 15:30까지 5시간 30분
+            assertThat(store.recordedTtls.get(SYMBOL + ":" + HORIZON))
+                    .isEqualTo(Duration.ofMinutes(330));
         }
     }
 
@@ -742,7 +857,7 @@ class FilterPipelineDwellTest {
             FilterPipeline today = pipeline(ladder(Market.DOMESTIC), DOMESTIC_CLOSING_CLOCK);
             tick(today, Grade.HOLD, LocalTime.of(15, 0));
             tick(today, Grade.BUY, LocalTime.of(15, 17));
-            Duration pendingTtl = store.pendingTtlOf(SYMBOL, HORIZON);
+            Duration pendingTtl = store.pendingTtls.get(SYMBOL + ":" + HORIZON);
 
             // Act — 마감 만료 모사 후 다음 거래일 10:00:00 고정 시계의 새 파이프라인(같은 저장소)
             store.expireIntraday(SYMBOL, HORIZON);
@@ -884,6 +999,11 @@ class FilterPipelineDwellTest {
             assertThat(stageCount("dwell", "voided"))
                     .as("기준 등급(HOLD)으로 되돌아온 교차 수만큼 무효화")
                     .isEqualTo(CROSSINGS / 2.0);
+            assertThat(decisions.stream().filter(decision -> !decision.isCandidate()))
+                    .as("AC-13 ② 억제 결정은 픽스처당 정확히 1건(유지 시간 사유)")
+                    .singleElement()
+                    .extracting(AlertDecision::suppressionReason)
+                    .isEqualTo(SuppressionReason.DWELL_PENDING);
         }
     }
 }
