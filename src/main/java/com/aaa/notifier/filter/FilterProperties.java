@@ -2,7 +2,10 @@ package com.aaa.notifier.filter;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
@@ -17,6 +20,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param band 밴드 판정 설정
  * @param guard 가드 필터 설정
  * @param confirm 전환 유형별 확증 횟수
+ * @param dwell 유지 시간 유형별 유지 시간 (SPEC-NOTIFIER-FILTER-002)
  * @param cooldown 전환 유형별·Tier별 쿨다운
  * @param confidence confidence 방향성·저확신 설정
  */
@@ -27,6 +31,7 @@ public record FilterProperties(
         Band band,
         Guard guard,
         Confirm confirm,
+        Dwell dwell,
         Cooldown cooldown,
         Confidence confidence) {
 
@@ -35,6 +40,7 @@ public record FilterProperties(
         Objects.requireNonNull(band, "notifier.filter.band는 필수다");
         Objects.requireNonNull(guard, "notifier.filter.guard는 필수다");
         Objects.requireNonNull(confirm, "notifier.filter.confirm은 필수다");
+        Objects.requireNonNull(dwell, "notifier.filter.dwell은 필수다");
         Objects.requireNonNull(cooldown, "notifier.filter.cooldown은 필수다");
         Objects.requireNonNull(confidence, "notifier.filter.confidence는 필수다");
     }
@@ -109,6 +115,91 @@ public record FilterProperties(
                                 + holdEntry
                                 + ")");
             }
+        }
+    }
+
+    /**
+     * 유지 시간 유형별 유지 시간 (SPEC-NOTIFIER-FILTER-002 REQ-008/012/016, design.md §3). 전환 후보는 새 유효 등급이 전환
+     * 체결 시각부터 이 시간 이상 끊김 없이 유지돼야 확증을 통과한다.
+     *
+     * <p>누락·0 이하는 키 이름을 밝힌 예외로 기동을 실패시킨다(REQ-012). 순서 세 쌍(직접 ≤ HOLD 이탈, 강도 완화 ≤ HOLD 진입, 순수 강도 강화 ≤
+     * HOLD 진입·STRONG)을 어기면 위반한 쌍을 모두 오류 로그에 남기고 기동을 실패시킨다(REQ-016) — 컨텍스트 기동 실패는 예외만 남기므로 로그는 여기서
+     * 직접 쓴다.
+     *
+     * @param direct ① 직접 전환(STRONG 도착 ※칸 포함)
+     * @param holdExit ② HOLD 이탈
+     * @param weakening ③ 강도 완화(Tier 3)
+     * @param holdEntry ④ HOLD 진입·STRONG 아닌 도착
+     * @param strengthUp ⑤ 순수 강도 강화(Tier 1)
+     * @param strongEntry ⑥ HOLD 진입·STRONG 도착(Tier 1※)
+     */
+    @Slf4j
+    public record Dwell(
+            Duration direct,
+            Duration holdExit,
+            Duration weakening,
+            Duration holdEntry,
+            Duration strengthUp,
+            Duration strongEntry) {
+
+        private static final String PREFIX = "notifier.filter.dwell.";
+
+        public Dwell {
+            requirePositive("direct", direct);
+            requirePositive("hold-exit", holdExit);
+            requirePositive("weakening", weakening);
+            requirePositive("hold-entry", holdEntry);
+            requirePositive("strength-up", strengthUp);
+            requirePositive("strong-entry", strongEntry);
+            List<String> violations = new ArrayList<>();
+            checkOrder(violations, "direct", direct, "hold-exit", holdExit);
+            checkOrder(violations, "weakening", weakening, "hold-entry", holdEntry);
+            checkOrder(violations, "strength-up", strengthUp, "strong-entry", strongEntry);
+            if (!violations.isEmpty()) {
+                violations.forEach(violation -> log.error("유지 시간 순서 위반 — {}", violation));
+                throw new IllegalArgumentException(
+                        "notifier.filter.dwell 순서 위반 — " + String.join(", ", violations));
+            }
+        }
+
+        private static void requirePositive(String key, Duration value) {
+            if (value == null) {
+                throw new IllegalArgumentException(PREFIX + key + "는 필수다");
+            }
+            if (value.isNegative() || value.isZero()) {
+                throw new IllegalArgumentException(
+                        PREFIX + key + "는 양수여야 한다 (현재 값: " + format(value) + ")");
+            }
+        }
+
+        /** {@code shorter ≤ longer}(같음 허용)가 아니면 위반 문구를 더한다. */
+        private static void checkOrder(
+                List<String> violations,
+                String shorterKey,
+                Duration shorter,
+                String longerKey,
+                Duration longer) {
+            if (shorter.compareTo(longer) > 0) {
+                violations.add(
+                        PREFIX
+                                + shorterKey
+                                + "("
+                                + format(shorter)
+                                + ") ≤ "
+                                + PREFIX
+                                + longerKey
+                                + "("
+                                + format(longer)
+                                + ") 이어야 한다");
+            }
+        }
+
+        /** 설정 파일 표기와 같은 단위로 보여 준다 — 분 단위면 {@code 8m}, 초 단위면 {@code 90s}. */
+        private static String format(Duration value) {
+            if (value.getNano() == 0 && value.getSeconds() % 60 == 0) {
+                return value.toMinutes() + "m";
+            }
+            return value.getNano() == 0 ? value.getSeconds() + "s" : value.toString();
         }
     }
 
