@@ -7,12 +7,16 @@ import com.aaa.notifier.telegram.TelegramFakes.LoggedRow;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 /**
  * 디스패처 — 발송·응답 4분류 처리·safe_mode·단일 이관 지점 (REQ-004·021~024·031, design.md §3·§4).
@@ -20,6 +24,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  * <p>가짜 협력자와 테스트 시계로 순서·대기 시간을 결정적으로 만든다. 디스패처 스레드 없이 {@link TelegramDispatcher#processNext()}로 버퍼를
  * 같은 스레드에서 비운다.
  */
+@ExtendWith(OutputCaptureExtension.class)
 @DisplayName("TelegramDispatcher — 발송 흐름·safe_mode·이관 지점")
 class TelegramDispatcherTest {
 
@@ -490,5 +495,46 @@ class TelegramDispatcherTest {
         send("trace-ok");
 
         assertThat(h.dispatcher.summaryRequested()).isTrue();
+    }
+
+    @Nested
+    @DisplayName("W3 — 종료 대기 중 작업 스레드 생존 관측 가능성 (design.md §4.2)")
+    class WorkerJoinObservability {
+
+        @Test
+        @DisplayName("대기 상한 안에 작업 스레드가 끝나지 않으면 WARN 로그를 남긴다")
+        void stillAlive_logsWarn(CapturedOutput output) throws InterruptedException {
+            CountDownLatch latch = new CountDownLatch(1);
+            Thread worker =
+                    Thread.ofVirtual()
+                            .start(
+                                    () -> {
+                                        try {
+                                            latch.await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    });
+
+            try {
+                h.dispatcher.joinWorker(worker, Duration.ofMillis(50));
+
+                assertThat(output.getAll()).contains("[telegram-dispatch]").contains("살아 있다");
+            } finally {
+                latch.countDown();
+                worker.join();
+            }
+        }
+
+        @Test
+        @DisplayName("대기 상한 안에 작업 스레드가 끝나면 WARN 로그가 없다")
+        void terminates_noWarn(CapturedOutput output) throws InterruptedException {
+            Thread worker = Thread.ofVirtual().start(() -> {});
+            worker.join();
+
+            h.dispatcher.joinWorker(worker, Duration.ofSeconds(1));
+
+            assertThat(output.getAll()).doesNotContain("살아 있다");
+        }
     }
 }
