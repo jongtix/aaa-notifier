@@ -103,7 +103,8 @@ class FilterPipelineGateTest {
         }
 
         @Test
-        @DisplayName("AC-12(FILTER-001) — 유지 확증 전 유효 등급이 바뀌면 새 후보의 측정이 그 교차 체결부터 다시 시작된다")
+        @DisplayName(
+                "FILTER-002 REQ-002 — 유지 확증 전 제3 등급으로 바뀌면 후보가 기준 등급(HOLD)→새 등급으로 교체되고 측정이 그 교차 체결부터 다시 시작된다")
         void gradeChangeBeforeDwell_restartsMeasurement() {
             // Arrange
             FilterPipeline pipeline =
@@ -114,12 +115,15 @@ class FilterPipelineGateTest {
             // Act — 유지 확증 전에 STRONG_BUY로 전환(29,000 → 30,600은 당일 변동폭 1,600 > ATR×2.5라 ATR 가드에 걸린다)
             tick(pipeline, "30600", TEN.plusMinutes(1));
 
-            // Assert — 이전 후보(HOLD→BUY)는 버려지고 새 후보(BUY→STRONG_BUY)가 10:01:00부터 잰다
+            // Assert — 이전 후보(HOLD→BUY)는 무효화되고 기준 등급 HOLD에서 새 후보(HOLD→STRONG_BUY)가 10:01:00부터 잰다
             assertThat(store.gradeOf("005930", "D20")).isEqualTo(Grade.STRONG_BUY);
-            PendingTransition pending = store.pending("005930", "D20").orElseThrow();
-            assertThat(pending.from()).isEqualTo(Grade.BUY);
-            assertThat(pending.to()).isEqualTo(Grade.STRONG_BUY);
-            assertThat(pending.since()).isEqualTo(kst(TEN.plusMinutes(1)));
+            assertThat(store.pending("005930", "D20").orElseThrow())
+                    .extracting(
+                            PendingTransition::from,
+                            PendingTransition::to,
+                            PendingTransition::since)
+                    .containsExactly(Grade.HOLD, Grade.STRONG_BUY, kst(TEN.plusMinutes(1)));
+            assertThat(dwellStage("voided")).isEqualTo(1.0);
         }
 
         @Test

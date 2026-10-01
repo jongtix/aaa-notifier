@@ -339,6 +339,282 @@ class FilterPipelineDwellTest {
     }
 
     @Nested
+    @DisplayName("기준 등급·무효화·교체 (REQ-002/003/004)")
+    class Baseline {
+
+        @Test
+        @DisplayName("AC-02 ① — BUY→SELL→BUY 교차가 이어지면 측정은 마지막 교차(10:06:00)부터 HOLD→BUY로 다시 잰다")
+        void repeatedCrossings_restartFromLastCrossingAgainstBaseline() {
+            // Arrange — 기준 HOLD
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+
+            // Act
+            ticksEvery10s(pipeline, Grade.BUY, TEN, LocalTime.of(10, 2, 50));
+            ticksEvery10s(pipeline, Grade.SELL, LocalTime.of(10, 3), LocalTime.of(10, 5, 50));
+            ticksEvery10s(pipeline, Grade.BUY, LocalTime.of(10, 6), LocalTime.of(10, 16, 10));
+
+            // Assert
+            assertThat(candidateTimes()).containsExactly(LocalTime.of(10, 16));
+            assertThat(decisions.stream().filter(AlertDecision::isCandidate))
+                    .singleElement()
+                    .extracting(AlertDecision::fromGrade, AlertDecision::toGrade)
+                    .containsExactly(Grade.HOLD, Grade.BUY);
+        }
+
+        @Test
+        @DisplayName("AC-03 — A→B→A(유지 시간 안)는 무효화되고, 되돌아온 A가 오래 유지돼도 역방향 후보는 열리지 않는다")
+        void returnWithinDwell_voidsWithoutReverseCandidate() {
+            // Arrange
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+            ticksEvery10s(pipeline, Grade.BUY, TEN, LocalTime.of(10, 1, 50));
+            int decisionsBeforeReturn = decisions.size();
+
+            // Act — 10:02:00 HOLD로 되돌아온 뒤 10:20:00까지 HOLD 영역 체결만
+            tick(pipeline, Grade.HOLD, LocalTime.of(10, 2));
+            Grade gradeAtReturn = store.gradeOf(SYMBOL, HORIZON);
+            ticksEvery10s(pipeline, Grade.HOLD, LocalTime.of(10, 2, 10), LocalTime.of(10, 20));
+
+            // Assert
+            assertThat(decisions).as("10:02:00 이후 결정 0건").hasSize(decisionsBeforeReturn);
+            assertThat(store.pending(SYMBOL, HORIZON)).isEmpty();
+            assertThat(gradeAtReturn).as("유효 등급은 즉시 갱신(REQ-003 후단)").isEqualTo(Grade.HOLD);
+            assertThat(stageCount("dwell", "voided")).isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("AC-04 — A→B→C(유지 시간 안)는 기준 등급 A에서 C로의 후보(HOLD→STRONG_BUY, 15분)다")
+        void thirdGrade_replacesCandidateFromBaseline() {
+            // Arrange
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+
+            // Act
+            ticksEvery10s(pipeline, Grade.BUY, TEN, LocalTime.of(10, 1, 50));
+            ticksEvery10s(pipeline, Grade.STRONG_BUY, LocalTime.of(10, 2), LocalTime.of(10, 18));
+
+            // Assert — BUY→STRONG_BUY(10분)라면 10:12:00이었을 것이다
+            assertThat(candidateTimes()).containsExactly(LocalTime.of(10, 17));
+            assertThat(decisions.stream().filter(AlertDecision::isCandidate))
+                    .singleElement()
+                    .extracting(
+                            AlertDecision::fromGrade,
+                            AlertDecision::toGrade,
+                            AlertDecision::tier,
+                            AlertDecision::transitionType)
+                    .containsExactly(Grade.HOLD, Grade.STRONG_BUY, 1, TransitionType.HOLD_ENTRY);
+        }
+
+        @Test
+        @DisplayName("AC-05 보조 ① — 유지 시간을 이미 채운 BUY 후보도 SELL 일치 체결이 오면 HOLD→SELL로 교체되고 발송 후보는 없다")
+        void satisfiedCandidate_isReplacedByThirdGrade() {
+            // Arrange
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+            ticksEvery10s(pipeline, Grade.BUY, TEN, LocalTime.of(10, 0, 40));
+
+            // Act — 10:14:00 SELL 일치 체결
+            tick(pipeline, Grade.SELL, LocalTime.of(10, 14));
+
+            // Assert
+            assertThat(candidates()).isZero();
+            assertThat(store.pending(SYMBOL, HORIZON).orElseThrow())
+                    .extracting(
+                            PendingTransition::from,
+                            PendingTransition::to,
+                            PendingTransition::since)
+                    .containsExactly(
+                            Grade.HOLD,
+                            Grade.SELL,
+                            kst(LocalDate.of(2026, 9, 29), LocalTime.of(10, 14)).toInstant());
+        }
+
+        @Test
+        @DisplayName("AC-12 — 측정 시작점은 연속 구간의 첫 체결(10:00:00)이다 — 데드존에서 돌아온 10:04:10이 아니다")
+        void measurementStartsAtFirstTradeOfRun() {
+            // Arrange — 데드존 폭이 있는 밴드, 기준 HOLD
+            FilterPipeline pipeline =
+                    pipeline(deadZoneReference(), FilterTestFixtures.DOMESTIC_SESSION_CLOCK);
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+
+            // Act
+            ticksEvery10s(pipeline, Market.DOMESTIC, "25600", TEN, LocalTime.of(10, 2));
+            ticksEvery10s(
+                    pipeline,
+                    Market.DOMESTIC,
+                    "25200",
+                    LocalTime.of(10, 2, 10),
+                    LocalTime.of(10, 4));
+            ticksEvery10s(
+                    pipeline,
+                    Market.DOMESTIC,
+                    "25600",
+                    LocalTime.of(10, 4, 10),
+                    LocalTime.of(10, 9, 50));
+            PendingTransition beforeDwell = store.pending(SYMBOL, HORIZON).orElseThrow();
+            ticksEvery10s(
+                    pipeline, Market.DOMESTIC, "25600", LocalTime.of(10, 10), LocalTime.of(10, 15));
+
+            // Assert
+            assertThat(beforeDwell.since())
+                    .isEqualTo(kst(LocalDate.of(2026, 9, 29), TEN).toInstant());
+            assertThat(candidateTimes()).containsExactly(LocalTime.of(10, 10));
+        }
+
+        @Test
+        @DisplayName("AC-12 ③ 대조 — 기준 등급 복귀(무효화) 뒤 재교차하면 구간이 끊겨 측정 시작점이 10:01:30으로 바뀐다")
+        void returnAndRecross_restartsMeasurement() {
+            // Arrange
+            FilterPipeline pipeline =
+                    pipeline(deadZoneReference(), FilterTestFixtures.DOMESTIC_SESSION_CLOCK);
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+
+            // Act — 10:00:00 BUY, 10:01:00 HOLD(기준 등급 복귀), 10:01:30 BUY 재교차
+            ticksEvery10s(pipeline, Market.DOMESTIC, "25600", TEN, LocalTime.of(10, 0, 50));
+            tick(pipeline, SYMBOL, "24000", LocalTime.of(10, 1));
+            ticksEvery10s(
+                    pipeline,
+                    Market.DOMESTIC,
+                    "25600",
+                    LocalTime.of(10, 1, 30),
+                    LocalTime.of(10, 12));
+
+            // Assert
+            assertThat(candidateTimes()).containsExactly(LocalTime.of(10, 11, 30));
+        }
+    }
+
+    @Nested
+    @DisplayName("AC-14 — 유지 시간 억제 사유와 유지 단계 계측 (REQ-013/015)")
+    class DwellMetrics {
+
+        private double pendingGauge() {
+            return registry.get(FilterMetrics.CONFIRM_PENDING).gauge().value();
+        }
+
+        @Test
+        @DisplayName("통과 1·차단 3·무효화 3(기준 등급 복귀·제3 등급 교체·묵은 후보 정리), 대기 게이지는 유지 대기를 포함하고 무효화·종결 뒤 뺀다")
+        void dwellStageCountsAndGauge() {
+            // Arrange — 종목 X(기준 HOLD)와 묵은 후보를 심은 종목 Y
+            StockReference x = ladder(Market.DOMESTIC);
+            StockReference y =
+                    new StockReference(
+                            2L,
+                            "000660",
+                            Market.DOMESTIC,
+                            FilterTestFixtures.PREV_DAY,
+                            bd("25000"),
+                            bd("1000000"),
+                            bd("1000000"),
+                            x.bands());
+            FilterPipeline pipeline =
+                    FilterPipelines.create(
+                            holderOf(x, y),
+                            store,
+                            decisions::add,
+                            registry,
+                            FilterTestFixtures.DOMESTIC_SESSION_CLOCK);
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+            store.setGrade("000660", HORIZON, Grade.BUY, Duration.ofHours(1));
+            store.savePending(
+                    "000660",
+                    HORIZON,
+                    PendingTransition.started(
+                            Grade.HOLD,
+                            Grade.SELL,
+                            kst(LocalDate.of(2026, 9, 29), LocalTime.of(10, 5)).toInstant()),
+                    Duration.ofHours(1));
+            List<Double> gauge = new ArrayList<>();
+
+            // Act
+            tick(pipeline, Grade.BUY, TEN); // ① 교차 → 차단 1
+            gauge.add(pendingGauge());
+            tick(pipeline, Grade.HOLD, LocalTime.of(10, 0, 10)); // ② 기준 등급 복귀 → 무효화 1
+            gauge.add(pendingGauge());
+            tick(pipeline, Grade.BUY, LocalTime.of(10, 1)); // ③ 새 교차 → 차단 2
+            gauge.add(pendingGauge());
+            tick(pipeline, Grade.STRONG_BUY, LocalTime.of(10, 1, 10)); // ④ 제3 등급 교체 → 무효화 2, 차단 3
+            gauge.add(pendingGauge());
+            tick(pipeline, Grade.STRONG_BUY, LocalTime.of(10, 16, 10)); // ⑥ 유지 15분 충족 → 통과 1
+            gauge.add(pendingGauge());
+            tick(
+                    pipeline,
+                    "000660",
+                    PRICE.get(Grade.BUY),
+                    LocalTime.of(10, 5, 30)); // Y 묵은 후보 → 무효화 3
+
+            // Assert
+            assertThat(
+                            List.of(
+                                    stageCount("dwell", "pass"),
+                                    stageCount("dwell", "block"),
+                                    stageCount("dwell", "voided")))
+                    .containsExactly(1.0, 3.0, 3.0);
+            assertThat(gauge).as("X의 게이지 추이 ①~④·⑥").containsExactly(1.0, 0.0, 1.0, 1.0, 0.0);
+            assertThat(
+                            decisions.stream()
+                                    .filter(decision -> !decision.isCandidate())
+                                    .map(AlertDecision::suppressionReason)
+                                    .distinct())
+                    .as("대기 억제 사유는 쿨다운과 다른 유지 시간 사유")
+                    .containsExactly(SuppressionReason.DWELL_PENDING);
+            assertThat(store.pending("000660", HORIZON)).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("AC-15 — 유지 확증과 쿨다운의 상호작용 (REQ-003/007)")
+    class DwellAndCooldown {
+
+        @Test
+        @DisplayName("유지 확증을 통과한 BUY→HOLD는 Tier 2 쿨다운으로 종결되고, 그 뒤 기준 등급은 HOLD다")
+        void dwellPassThenCooldown_movesBaseline() {
+            // Arrange — 10:10:00 HOLD→BUY 발송 후보(HOLD 진입 쿨다운 30분)
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+            ticksEvery10s(pipeline, Grade.BUY, TEN, LocalTime.of(10, 11, 50));
+
+            // Act — 10:12:00 BUY→HOLD, 10:20:00까지 HOLD, 이어서 10:21:00 BUY 교차
+            ticksEvery10s(pipeline, Grade.HOLD, LocalTime.of(10, 12), LocalTime.of(10, 20));
+            tick(pipeline, Grade.BUY, LocalTime.of(10, 21));
+
+            // Assert
+            assertThat(candidateTimes()).containsExactly(LocalTime.of(10, 10));
+            assertThat(
+                            decisions.stream()
+                                    .filter(
+                                            decision ->
+                                                    decision.suppressionReason()
+                                                            == SuppressionReason.COOLDOWN_ACTIVE))
+                    .singleElement()
+                    .extracting(AlertDecision::fromGrade, AlertDecision::toGrade)
+                    .containsExactly(Grade.BUY, Grade.HOLD);
+            assertThat(store.pending(SYMBOL, HORIZON).orElseThrow().from())
+                    .as("쿨다운 종결도 기준 등급을 옮긴다")
+                    .isEqualTo(Grade.HOLD);
+        }
+
+        @Test
+        @DisplayName("보조 — BUY→HOLD가 7분 안에 BUY로 되돌아오면 쿨다운 검사까지 가지 않고 무효화된다")
+        void returnBeforeDwell_neverReachesCooldown() {
+            // Arrange
+            FilterPipeline pipeline = domesticPipeline();
+            store.setGrade(SYMBOL, HORIZON, Grade.HOLD, Duration.ofHours(1));
+            ticksEvery10s(pipeline, Grade.BUY, TEN, LocalTime.of(10, 11, 50));
+
+            // Act
+            ticksEvery10s(pipeline, Grade.HOLD, LocalTime.of(10, 12), LocalTime.of(10, 14, 50));
+            tick(pipeline, Grade.BUY, LocalTime.of(10, 15));
+
+            // Assert
+            assertThat(suppressedBy(SuppressionReason.COOLDOWN_ACTIVE)).isZero();
+            assertThat(stageCount("dwell", "voided")).isEqualTo(1.0);
+            assertThat(store.pending(SYMBOL, HORIZON)).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("AC-07 — 20칸 전부 유지 시간 유형 대응, 경계 판정 (REQ-008)")
     class TwentyCells {
 
@@ -605,6 +881,9 @@ class FilterPipelineDwellTest {
             assertThat(stageCount("band", "transition"))
                     .as("유효 등급은 교차마다 갱신된다 — 원인(데드존 폭 0)은 남아 있다(spec.md §1.3)")
                     .isEqualTo(CROSSINGS);
+            assertThat(stageCount("dwell", "voided"))
+                    .as("기준 등급(HOLD)으로 되돌아온 교차 수만큼 무효화")
+                    .isEqualTo(CROSSINGS / 2.0);
         }
     }
 }

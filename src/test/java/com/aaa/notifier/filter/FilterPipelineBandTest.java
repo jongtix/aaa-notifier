@@ -289,6 +289,34 @@ class FilterPipelineBandTest {
     }
 
     @Test
+    @DisplayName("FILTER-002 AC-03 ③ — 기준 등급으로 돌아온 체결은 유효 등급을 즉시 갱신하고 열린 후보를 무효화한다 (REQ-003/004)")
+    void returnToBaseline_updatesGradeAndVoidsCandidate() {
+        // Arrange — 기준 BUY, BUY→STRONG_BUY 후보가 열린 상태(유효 등급 STRONG_BUY)
+        FilterPipeline pipeline =
+                pipeline(
+                        holderOf(
+                                domesticReference(
+                                        Map.of("D20", FilterTestFixtures.buyStrongBuyBands()))));
+        store.setGrade("005930", "D20", Grade.STRONG_BUY, Duration.ofHours(1));
+        store.savePending(
+                "005930",
+                "D20",
+                PendingTransition.started(
+                        Grade.BUY,
+                        Grade.STRONG_BUY,
+                        ZonedDateTime.of(2026, 9, 29, 10, 0, 0, 0, MarketSession.KST).toInstant()),
+                Duration.ofHours(1));
+
+        // Act — 양 파티션 BUY 일치 체결(기준 등급 복귀)
+        pipeline.onTradeTick(domesticTick("29000", TEN_THIRTY, 100_000L));
+
+        // Assert — 유효 등급은 즉시 BUY, 후보는 결정 없이 무효화되고 역방향(STRONG_BUY→BUY) 후보는 열리지 않는다
+        assertThat(store.gradeOf("005930", "D20")).isEqualTo(Grade.BUY);
+        assertThat(store.pending("005930", "D20")).isEmpty();
+        assertThat(stageCount("dwell", "voided")).isEqualTo(1.0);
+    }
+
+    @Test
     @DisplayName("감시 대상이 아닌(적재되지 않은) 종목의 체결은 무시한다")
     void unknownSymbol_isIgnored() {
         // Arrange
