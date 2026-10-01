@@ -121,6 +121,8 @@ public class FilterMetrics {
         GUARD_TIME,
         GUARD_ATR,
         CONFIRM,
+        /** 유지 시간 확증 (SPEC-NOTIFIER-FILTER-002 REQ-015) — 통과·차단·무효화를 센다. */
+        DWELL,
         COOLDOWN,
         CONFIDENCE;
 
@@ -144,7 +146,11 @@ public class FilterMetrics {
         /** {@code price.scale() != priceScale} 관측치 제외(REQ-015). */
         SKIPPED_SCALE_MISMATCH,
         /** 발송 후보에 저확신 표시 플래그 부여(REQ-053). */
-        LOW_CONFIDENCE_TAGGED;
+        LOW_CONFIDENCE_TAGGED,
+        /**
+         * 종결 결정 없이 후보가 버려짐 — 기준 등급 복귀·다른 등급 교차에 따른 교체·묵은 후보 정리 (SPEC-NOTIFIER-FILTER-002 REQ-015).
+         */
+        VOIDED;
 
         String tag() {
             return name().toLowerCase(Locale.ROOT);
