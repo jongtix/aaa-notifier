@@ -63,10 +63,15 @@ class FilterPipelineConfidenceTest {
         }
     }
 
-    private void ticks(FilterPipeline pipeline, int count) {
-        for (int i = 0; i < count; i++) {
+    /**
+     * 10:00:00 체결로 교차한 뒤 그 칸의 유지 시간이 지난 체결을 한 건 더 보낸다 — 유지 확증을 통과시켜 쿨다운·confidence 단계까지 보낸다
+     * (SPEC-NOTIFIER-FILTER-002).
+     */
+    private void crossAndDwell(FilterPipeline pipeline, Duration dwell) {
+        LocalTime crossing = LocalTime.of(10, 0);
+        for (LocalTime time : List.of(crossing, crossing.plus(dwell))) {
             accumulated += 1_000L;
-            pipeline.onTradeTick(domesticTick("30000", LocalTime.of(10, 0), accumulated));
+            pipeline.onTradeTick(domesticTick("30000", time, accumulated));
         }
     }
 
@@ -132,7 +137,7 @@ class FilterPipelineConfidenceTest {
             store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
 
             // Act
-            ticks(pipeline, 5);
+            crossAndDwell(pipeline, FilterPipelines.DWELL.holdEntry());
 
             // Assert
             assertThat(decisions.getLast())
@@ -141,7 +146,7 @@ class FilterPipelineConfidenceTest {
         }
 
         @Test
-        @DisplayName("Tier 1 후보(BUY→STRONG_BUY, STRONG 도달)도 예외 없이 강등·억제된다")
+        @DisplayName("E5 — 유지 시간을 채운 Tier 1 후보(BUY→STRONG_BUY, STRONG 도달)도 예외 없이 강등·억제로 종결된다")
         void tierOneCandidate_isAlsoDemoted() {
             // Arrange
             FilterPipeline pipeline = pipeline(Grade.STRONG_BUY);
@@ -149,10 +154,15 @@ class FilterPipelineConfidenceTest {
             store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
 
             // Act
-            ticks(pipeline, 1);
+            crossAndDwell(pipeline, FilterPipelines.DWELL.strengthUp());
 
-            // Assert
-            assertThat(decisions)
+            // Assert — 교차 직후의 유지 대기 결정을 빼면 종결 결정은 강등 1건이다
+            assertThat(
+                            decisions.stream()
+                                    .filter(
+                                            decision ->
+                                                    decision.suppressionReason()
+                                                            != SuppressionReason.DWELL_PENDING))
                     .singleElement()
                     .extracting(AlertDecision::tier, AlertDecision::suppressionReason)
                     .containsExactly(1, SuppressionReason.CONFIDENCE_WEAKENING_DEMOTED);
@@ -168,7 +178,7 @@ class FilterPipelineConfidenceTest {
             store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
 
             // Act
-            ticks(pipeline, 1);
+            crossAndDwell(pipeline, FilterPipelines.DWELL.strengthUp());
 
             // Assert
             assertThat(decisions.getLast().isCandidate()).isTrue();
@@ -183,7 +193,7 @@ class FilterPipelineConfidenceTest {
             store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
 
             // Act
-            ticks(pipeline, 1);
+            crossAndDwell(pipeline, FilterPipelines.DWELL.strengthUp());
 
             // Assert
             assertThat(decisions.getLast().isCandidate()).isTrue();
@@ -198,7 +208,7 @@ class FilterPipelineConfidenceTest {
             store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
 
             // Act
-            ticks(pipeline, 1);
+            crossAndDwell(pipeline, FilterPipelines.DWELL.strengthUp());
 
             // Assert
             assertThat(decisions.getLast().isCandidate()).isTrue();
@@ -214,7 +224,7 @@ class FilterPipelineConfidenceTest {
         store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
 
         // Act
-        ticks(pipeline, 1);
+        crossAndDwell(pipeline, FilterPipelines.DWELL.strengthUp());
 
         // Assert
         assertThat(decisions.getLast())
@@ -231,9 +241,11 @@ class FilterPipelineConfidenceTest {
         store.setGrade("005930", "D20", Grade.BUY, Duration.ofHours(1));
 
         // Act
-        ticks(pipeline, 1);
+        crossAndDwell(pipeline, FilterPipelines.DWELL.strengthUp());
 
-        // Assert
-        assertThat(decisions.getLast().lowConfidenceFlag()).isFalse();
+        // Assert — 발송 후보임을 먼저 확인한다(대기 억제 결정을 검사하며 조용히 통과하지 않도록, N6)
+        assertThat(decisions.getLast())
+                .extracting(AlertDecision::isCandidate, AlertDecision::lowConfidenceFlag)
+                .containsExactly(true, false);
     }
 }

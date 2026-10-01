@@ -30,13 +30,16 @@ class TransitionMatrixTest {
     }
 
     @Test
-    @DisplayName("순수 강도 강화(BUY→STRONG_BUY)는 무유형·무확증 Tier 1이다 (REQ-035)")
-    void pureStrengthening_isTierOneWithoutConfirmation() {
+    @DisplayName(
+            "순수 강도 강화(BUY→STRONG_BUY)는 무유형 Tier 1이며 순수 강도 강화 유지 시간 유형(10분)을 쓴다 (REQ-035, FILTER-002 REQ-008)")
+    void pureStrengthening_isTierOneWithStrengthUpDwell() {
         TransitionClass cell = TransitionMatrix.classify(Grade.BUY, Grade.STRONG_BUY).orElseThrow();
+        TransitionPolicy policy =
+                new TransitionPolicy(FilterPipelines.DWELL, FilterPipelines.COOLDOWN);
 
         assertThat(cell.tier()).isEqualTo(1);
         assertThat(cell.type()).isNull();
-        assertThat(cell.requiresConfirmation()).isFalse();
+        assertThat(policy.dwellOf(cell)).isEqualTo(FilterPipelines.DWELL.strengthUp());
         assertThat(cell.kind()).isEqualTo(TransitionClass.Kind.STRENGTHEN);
     }
 }

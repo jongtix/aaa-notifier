@@ -11,7 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 파이프라인 단위 테스트용 인메모리 상태 저장소 — Redis 없이 판정 로직만 검증한다.
  *
- * <p>TTL은 기록만 하고 만료시키지 않는다(단위 테스트는 시계를 고정하므로 만료 경과가 없다). Redis 구현의 실제 키·만료는 통합 테스트가 검증한다.
+ * <p>TTL은 기록만 하고 스스로 만료시키지 않는다(단위 테스트는 시계를 고정하므로 만료 경과가 없다). 장 마감 만료는 {@link #expireIntraday}로
+ * 모사한다(SPEC-NOTIFIER-FILTER-002 AC-09 (c)). Redis 구현의 실제 키·만료는 통합 테스트가 검증한다.
  */
 class InMemoryFilterStateStore implements FilterStateStore {
 
@@ -19,6 +20,7 @@ class InMemoryFilterStateStore implements FilterStateStore {
     final Map<String, Duration> gradeTtls = new ConcurrentHashMap<>();
     final Map<String, SignalSnapshot> signals = new ConcurrentHashMap<>();
     final Map<String, PendingTransition> pendings = new ConcurrentHashMap<>();
+    final Map<String, Duration> pendingTtls = new ConcurrentHashMap<>();
     final Map<String, Grade> cooldowns = new ConcurrentHashMap<>();
     final Map<String, List<BigDecimal>> confidenceWindows = new ConcurrentHashMap<>();
 
@@ -65,6 +67,7 @@ class InMemoryFilterStateStore implements FilterStateStore {
     public void savePending(
             String symbol, String horizon, PendingTransition pending, Duration ttl) {
         pendings.put(key(symbol, horizon), pending);
+        pendingTtls.put(key(symbol, horizon), ttl);
     }
 
     @Override
@@ -109,5 +112,18 @@ class InMemoryFilterStateStore implements FilterStateStore {
 
     Grade gradeOf(String symbol, String horizon) {
         return grades.get(key(symbol, horizon));
+    }
+
+    /** 마지막으로 기록된 후보 키의 TTL(장 마감까지 남은 시간). */
+    Duration pendingTtlOf(String symbol, String horizon) {
+        return pendingTtls.get(key(symbol, horizon));
+    }
+
+    /** 장 마감 만료 모사 — 마감 TTL이 걸린 장중 키(유효 등급·후보)를 지운다. 다일 수명 키(신호·confidence)는 남는다. */
+    void expireIntraday(String symbol, String horizon) {
+        grades.remove(key(symbol, horizon));
+        gradeTtls.remove(key(symbol, horizon));
+        pendings.remove(key(symbol, horizon));
+        pendingTtls.remove(key(symbol, horizon));
     }
 }

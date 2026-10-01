@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.aaa.notifier.stream.ConsumedStream;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +66,7 @@ class FilterPipelineEndToEndIntegrationTest {
     private static final Duration WAIT = Duration.ofSeconds(15);
 
     private static final String TICK_TRACE_ID = "0b6f7c2e-1a3d-4e5f-9a7b-8c9d0e1f2a3b";
+    private static final String DWELL_TICK_TRACE_ID = "7e1d2c3b-4a5f-4e6d-8c7b-9a0f1e2d3c4b";
     private static final String SIGNAL_TRACE_ID = "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a";
 
     /**
@@ -81,6 +84,38 @@ class FilterPipelineEndToEndIntegrationTest {
     @Autowired private StringRedisTemplate redisTemplate;
     @Autowired private ReferenceDataRefresher refresher;
     @Autowired private TestRestTemplate restTemplate;
+    @Autowired private MeterRegistry meterRegistry;
+
+    /** {@link #DOMESTIC_TRADE_RECORD}에서 {@code [1]} 체결 시각과 {@code [13]} 누적 거래량만 바꾼 레코드. */
+    private static String tradeRecord(String time, long accumulatedVolume) {
+        String[] fields = DOMESTIC_TRADE_RECORD.split("\\^", -1);
+        fields[1] = time;
+        fields[13] = Long.toString(accumulatedVolume);
+        return String.join("^", fields);
+    }
+
+    private void publishTick(String record, String traceId) {
+        publish(
+                ConsumedStream.TICK_DOMESTIC,
+                Map.of(
+                        "symbol",
+                        "005930",
+                        "trId",
+                        "H0STCNT0",
+                        "data",
+                        record,
+                        "trace_id",
+                        traceId));
+    }
+
+    private double candidateDecisions() {
+        Counter counter =
+                meterRegistry
+                        .find("notifier.filter.decision")
+                        .tag("outcome", "candidate")
+                        .counter();
+        return counter == null ? 0.0 : counter.count();
+    }
 
     @BeforeEach
     void setUp() {
@@ -121,7 +156,8 @@ class FilterPipelineEndToEndIntegrationTest {
     }
 
     @Test
-    @DisplayName("신호 → 장전 적재 → 틱 → STRONG_BUY→BUY(Tier 3) 결정이 notification_log DRYRUN 행으로 남는다")
+    @DisplayName(
+            "신호 → 장전 적재 → 틱 → STRONG_BUY→BUY(Tier 3)가 강도 완화 유지 시간(7분) 뒤 발송 후보 DRYRUN 행으로 남는다 (FILTER-002)")
     void signalThenTick_persistsDryRunDecision() {
         // Arrange — 장전 적재(유효 등급 초기값 = DEMOTE(30,000) = STRONG_BUY) + 전일 신호
         refresher.onDomesticPreOpen();
@@ -137,24 +173,19 @@ class FilterPipelineEndToEndIntegrationTest {
                         "confidence", "0.600"));
         await().atMost(WAIT).until(() -> redisTemplate.hasKey(FilterKeys.signal("005930", "D20")));
 
-        // Act — 29,000 체결: 양 파티션 BUY 일치 → 강도 완화(무확증 Tier 3), 가드 통과(10:00, 누적 100,000)
-        publish(
-                ConsumedStream.TICK_DOMESTIC,
-                Map.of(
-                        "symbol",
-                        "005930",
-                        "trId",
-                        "H0STCNT0",
-                        "data",
-                        DOMESTIC_TRADE_RECORD,
-                        "trace_id",
-                        TICK_TRACE_ID));
-
-        // Assert
+        // Act — 10:00:00 29,000 체결: 양 파티션 BUY 일치 → 강도 완화(Tier 3) 교차, 유지 대기(DRYRUN 억제 행)
+        publishTick(DOMESTIC_TRADE_RECORD, TICK_TRACE_ID);
         await().atMost(WAIT).until(() -> dryRunRows(TICK_TRACE_ID) == 1);
+        double candidatesBefore = candidateDecisions();
+        // 10:07:00 체결 — 강도 완화 유지 시간 7분 충족 → 발송 후보
+        publishTick(tradeRecord("100700", 100_100L), DWELL_TICK_TRACE_ID);
+
+        // Assert — DRYRUN 행만으로는 대기 억제와 구분되지 않으므로 결정 계측의 발송 후보 증가를 함께 본다
+        await().atMost(WAIT).until(() -> dryRunRows(DWELL_TICK_TRACE_ID) == 1);
+        assertThat(candidateDecisions()).isEqualTo(candidatesBefore + 1);
         Map<String, Object> row =
                 jdbcTemplate.queryForMap(
-                        "SELECT * FROM notification_log WHERE trace_id = ?", TICK_TRACE_ID);
+                        "SELECT * FROM notification_log WHERE trace_id = ?", DWELL_TICK_TRACE_ID);
         assertThat(row)
                 .containsEntry("signal_class", "BUY")
                 .containsEntry("horizon", "D20")

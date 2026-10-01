@@ -80,7 +80,7 @@ public class FilterAutoConfiguration {
         return new ReferenceDataRefresher(loader, holder, stateStore, metrics, clock);
     }
 
-    /** 가드 → 확증 → 쿨다운 → 결정 방출 게이트. */
+    /** 가드 → 유지 시간 → 쿨다운 → 결정 방출 게이트. */
     @Bean
     @ConditionalOnMissingBean
     public TransitionGate transitionGate(
@@ -91,7 +91,7 @@ public class FilterAutoConfiguration {
         return new TransitionGate(
                 stateStore,
                 new GuardEvaluator(properties.guard(), metrics),
-                new TransitionPolicy(properties.confirm(), properties.cooldown()),
+                new TransitionPolicy(properties.dwell(), properties.cooldown()),
                 new ConfidencePolicy(properties.confidence()),
                 alertDecisionSink,
                 metrics);

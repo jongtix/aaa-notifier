@@ -35,7 +35,7 @@ class FilterMetricsTest {
     }
 
     @Test
-    @DisplayName("확증 대기 후보가 생기면 게이지가 오르고 종결되면 내려간다")
+    @DisplayName("확증(유지 시간) 대기 후보가 생기면 게이지가 오르고 종결되면 내려간다")
     void pendingGauge_tracksOpenCandidates() {
         // Arrange
         PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
@@ -51,13 +51,12 @@ class FilterMetricsTest {
                         FilterTestFixtures.DOMESTIC_SESSION_CLOCK);
         store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
 
-        // Act & Assert — HOLD→BUY 확증 5회 중 1회차: 대기
+        // Act & Assert — HOLD→BUY 교차: 유지 시간(10분) 대기
         pipeline.onTradeTick(domesticTick("30000", LocalTime.of(10, 0), 100_000L));
         assertThat(registry.get("notifier.filter.confirm.pending").gauge().value()).isEqualTo(1.0);
 
-        for (long volume = 101_000L; volume <= 104_000L; volume += 1_000L) {
-            pipeline.onTradeTick(domesticTick("30000", LocalTime.of(10, 0), volume));
-        }
+        // 유지 시간 충족 → 발송 후보로 종결
+        pipeline.onTradeTick(domesticTick("30000", LocalTime.of(10, 10), 101_000L));
         assertThat(registry.get("notifier.filter.confirm.pending").gauge().value()).isZero();
     }
 

@@ -277,7 +277,7 @@ class FilterPipelineBandTest {
             store.savePending(
                     "005930",
                     "D20",
-                    new PendingTransition(Grade.HOLD, Grade.BUY, 2, null, null),
+                    new PendingTransition(Grade.HOLD, Grade.BUY, null, null),
                     Duration.ofHours(1));
 
             // Act

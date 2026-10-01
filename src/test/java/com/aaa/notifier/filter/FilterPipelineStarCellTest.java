@@ -18,7 +18,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("FilterPipeline — ※셀 해소: Tier 1 + 동시 성립 유형 확증 (REQ-042, AC-16)")
+@DisplayName(
+        "FilterPipeline — ※셀 해소: Tier 1 + HOLD 진입·STRONG 유지 시간 (REQ-042, FILTER-002 REQ-008, AC-16)")
 class FilterPipelineStarCellTest {
 
     private List<AlertDecision> decisions;
@@ -44,18 +45,17 @@ class FilterPipelineStarCellTest {
         store.setGrade("005930", "D20", Grade.HOLD, Duration.ofHours(1));
     }
 
-    private void tick() {
+    private void tick(LocalTime time) {
         accumulated += 1_000L;
-        pipeline.onTradeTick(domesticTick("30000", LocalTime.of(10, 0), accumulated));
+        pipeline.onTradeTick(domesticTick("30000", time, accumulated));
     }
 
     @Test
-    @DisplayName("AC-16 — HOLD→STRONG_BUY는 Tier 1로 분류되지만 HOLD 진입 확증(5회) 미달이면 보류된다")
-    void starCell_isTierOneButStillRequiresConfirmation() {
+    @DisplayName("AC-16 — HOLD→STRONG_BUY는 Tier 1로 분류되지만 HOLD 진입·STRONG 유지 시간(15분) 미충족이면 대기한다")
+    void starCell_isTierOneButStillRequiresDwell() {
         // Act
-        for (int i = 0; i < 4; i++) {
-            tick();
-        }
+        tick(LocalTime.of(10, 0));
+        tick(LocalTime.of(10, 14, 50));
 
         // Assert
         assertThat(decisions)
@@ -64,11 +64,11 @@ class FilterPipelineStarCellTest {
                         AlertDecision::tier,
                         AlertDecision::transitionType,
                         AlertDecision::suppressionReason)
-                .containsExactly(1, TransitionType.HOLD_ENTRY, SuppressionReason.CONFIRM_PENDING);
+                .containsExactly(1, TransitionType.HOLD_ENTRY, SuppressionReason.DWELL_PENDING);
     }
 
     @Test
-    @DisplayName("AC-16 후단 — 확증 도달 후에는 저확신(confidence < 임계)이어도 보류되지 않는다 (static 게이트 없음)")
+    @DisplayName("AC-16 후단 — 유지 시간 충족 후에는 저확신(confidence < 임계)이어도 보류되지 않는다 (static 게이트 없음)")
     void starCell_isNotBlockedByLowStaticConfidence() {
         // Arrange — confidence 0.55 (< 저확신 임계 0.65) 신호
         pipeline.onSignal(
@@ -82,9 +82,8 @@ class FilterPipelineStarCellTest {
                         bd("0.550")));
 
         // Act
-        for (int i = 0; i < 5; i++) {
-            tick();
-        }
+        tick(LocalTime.of(10, 0));
+        tick(LocalTime.of(10, 15));
 
         // Assert
         AlertDecision last = decisions.getLast();

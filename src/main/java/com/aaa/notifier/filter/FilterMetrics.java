@@ -50,16 +50,16 @@ public class FilterMetrics {
                 .description("장전 적재로 판정 가능한 종목 수 — 0이면 전 종목 밴드 판정 불가 상태(plan.md §H R3)")
                 .register(registry);
         Gauge.builder(CONFIRM_PENDING, pendingCandidates, Set::size)
-                .description("확증 대기 중인 전환 후보 수 (종목×horizon)")
+                .description("확증(유지 시간) 대기 중인 전환 후보 수 (종목×horizon)")
                 .register(registry);
     }
 
-    /** 확증 대기 후보가 열렸다(가드 대기·확증 미달). */
+    /** 확증 대기 후보가 열렸다(가드 대기·유지 시간 미충족). */
     public void pendingOpened(Market market, String symbol, String horizon) {
         pendingCandidates.add(new PendingKey(market, symbol, horizon));
     }
 
-    /** 확증 대기 후보가 종결됐다(발송 후보 확정·쿨다운·강등·묵은 후보 정리). */
+    /** 확증 대기 후보가 닫혔다(발송 후보 확정·쿨다운·강등·무효화). */
     public void pendingClosed(Market market, String symbol, String horizon) {
         pendingCandidates.remove(new PendingKey(market, symbol, horizon));
     }
@@ -120,7 +120,6 @@ public class FilterMetrics {
         GUARD_VOLUME,
         GUARD_TIME,
         GUARD_ATR,
-        CONFIRM,
         /** 유지 시간 확증 (SPEC-NOTIFIER-FILTER-002 REQ-015) — 통과·차단·무효화를 센다. */
         DWELL,
         COOLDOWN,

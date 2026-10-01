@@ -50,46 +50,85 @@ class TransitionMatrixTierTest {
         assertThat(cell.type() == null ? "NONE" : cell.type().name()).isEqualTo(type);
     }
 
-    @ParameterizedTest(name = "※({0} → {1})는 Tier 1이면서 {2} 유형의 확증 횟수를 쓴다")
+    @ParameterizedTest(name = "※({0} → {1})는 Tier 1이면서 유지 시간 {3}·{2} 유형의 쿨다운을 쓴다")
     @CsvSource({
-        "HOLD,        STRONG_BUY,  HOLD_ENTRY, 5",
-        "HOLD,        STRONG_SELL, HOLD_ENTRY, 5",
-        "BUY,         STRONG_SELL, DIRECT,     2",
-        "SELL,        STRONG_BUY,  DIRECT,     2",
-        "STRONG_BUY,  STRONG_SELL, DIRECT,     2",
-        "STRONG_SELL, STRONG_BUY,  DIRECT,     2",
+        "HOLD,        STRONG_BUY,  HOLD_ENTRY, PT15M",
+        "HOLD,        STRONG_SELL, HOLD_ENTRY, PT15M",
+        "BUY,         STRONG_SELL, DIRECT,     PT5M",
+        "SELL,        STRONG_BUY,  DIRECT,     PT5M",
+        "STRONG_BUY,  STRONG_SELL, DIRECT,     PT5M",
+        "STRONG_SELL, STRONG_BUY,  DIRECT,     PT5M",
     })
-    @DisplayName("REQ-042 — ※칸은 Tier 1 전용 세트 없이 동시 성립 유형의 확증·쿨다운을 쓴다")
+    @DisplayName(
+            "REQ-042 / FILTER-002 REQ-008 — 직접 전환 ※칸은 직접 전환 유지 시간, HOLD 진입 ※칸은 전용 유지 시간(15분)을 쓰고 쿨다운은 동시 성립 유형 값을 쓴다")
     void starCells_reuseTransitionTypeParameters(
-            Grade from, Grade to, TransitionType type, int confirmations) {
+            Grade from, Grade to, TransitionType type, String dwell) {
         TransitionClass cell = TransitionMatrix.classify(from, to).orElseThrow();
         TransitionPolicy policy =
-                new TransitionPolicy(FilterPipelines.CONFIRM, FilterPipelines.COOLDOWN);
+                new TransitionPolicy(FilterPipelines.DWELL, FilterPipelines.COOLDOWN);
 
         assertThat(cell.tier()).isEqualTo(1);
         assertThat(cell.type()).isEqualTo(type);
-        assertThat(policy.confirmations(cell)).isEqualTo(confirmations);
+        assertThat(policy.dwellOf(cell)).hasToString(dwell);
         assertThat(policy.cooldownOf(cell))
                 .isEqualTo(
                         policy.cooldownOf(
                                 new TransitionClass(2, type, TransitionClass.Kind.TYPED)));
     }
 
-    @ParameterizedTest(name = "{0} → {1}는 무확증이며 {2} 쿨다운을 쓴다")
+    @ParameterizedTest(name = "{0} → {1}는 유지 시간 {2}·쿨다운 {3}을 쓴다")
     @CsvSource({
-        "BUY,         STRONG_BUY,  PT20M",
-        "SELL,        STRONG_SELL, PT20M",
-        "STRONG_BUY,  BUY,         PT10M",
-        "STRONG_SELL, SELL,        PT10M",
+        "BUY,         STRONG_BUY,  PT10M, PT20M",
+        "SELL,        STRONG_SELL, PT10M, PT20M",
+        "STRONG_BUY,  BUY,         PT7M,  PT10M",
+        "STRONG_SELL, SELL,        PT7M,  PT10M",
     })
-    @DisplayName("REQ-035 — 순수 강화(Tier1 반복 쿨다운)·완화(Tier3 쿨다운)는 확증 없이 즉시 발송 후보다")
-    void untypedCells_skipConfirmation(Grade from, Grade to, String cooldown) {
+    @DisplayName(
+            "REQ-035 / FILTER-002 REQ-008 — 순수 강화(Tier1 반복 쿨다운)·완화(Tier3 쿨다운)도 유지 시간을 채워야 발송 후보다 (\"즉시\" 대체)")
+    void untypedCells_requireDwell(Grade from, Grade to, String dwell, String cooldown) {
         TransitionClass cell = TransitionMatrix.classify(from, to).orElseThrow();
         TransitionPolicy policy =
-                new TransitionPolicy(FilterPipelines.CONFIRM, FilterPipelines.COOLDOWN);
+                new TransitionPolicy(FilterPipelines.DWELL, FilterPipelines.COOLDOWN);
 
-        assertThat(cell.requiresConfirmation()).isFalse();
-        assertThat(policy.confirmations(cell)).isEqualTo(1);
+        assertThat(policy.dwellOf(cell)).hasToString(dwell);
         assertThat(policy.cooldownOf(cell)).hasToString(cooldown);
+    }
+
+    @ParameterizedTest(name = "{0} → {1} = 유지 시간 {2}")
+    @CsvSource({
+        // ① 직접 전환 8칸(※칸 4칸 포함) 5m
+        "STRONG_BUY,  SELL,        PT5M",
+        "STRONG_BUY,  STRONG_SELL, PT5M",
+        "BUY,         SELL,        PT5M",
+        "BUY,         STRONG_SELL, PT5M",
+        "SELL,        STRONG_BUY,  PT5M",
+        "SELL,        BUY,         PT5M",
+        "STRONG_SELL, STRONG_BUY,  PT5M",
+        "STRONG_SELL, BUY,         PT5M",
+        // ② HOLD 이탈 4칸 7m
+        "STRONG_BUY,  HOLD,        PT7M",
+        "BUY,         HOLD,        PT7M",
+        "SELL,        HOLD,        PT7M",
+        "STRONG_SELL, HOLD,        PT7M",
+        // ③ 강도 완화 2칸 7m
+        "STRONG_BUY,  BUY,         PT7M",
+        "STRONG_SELL, SELL,        PT7M",
+        // ④ HOLD 진입·비STRONG 2칸 10m
+        "HOLD,        BUY,         PT10M",
+        "HOLD,        SELL,        PT10M",
+        // ⑤ 순수 강도 강화 2칸 10m
+        "BUY,         STRONG_BUY,  PT10M",
+        "SELL,        STRONG_SELL, PT10M",
+        // ⑥ HOLD 진입·STRONG 2칸 15m
+        "HOLD,        STRONG_BUY,  PT15M",
+        "HOLD,        STRONG_SELL, PT15M",
+    })
+    @DisplayName("FILTER-002 AC-07 ① — 비대각 20칸이 6개 유지 시간 유형에 design.md §3.2 표대로 대응한다")
+    void everyCell_mapsToDesignDwell(Grade from, Grade to, String dwell) {
+        TransitionPolicy policy =
+                new TransitionPolicy(FilterPipelines.DWELL, FilterPipelines.COOLDOWN);
+
+        assertThat(policy.dwellOf(TransitionMatrix.classify(from, to).orElseThrow()))
+                .hasToString(dwell);
     }
 }

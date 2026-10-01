@@ -108,7 +108,6 @@ class RedisFilterStateStoreIntegrationTest {
                 new PendingTransition(
                         Grade.HOLD,
                         Grade.BUY,
-                        3,
                         SuppressionReason.CONFIRM_PENDING,
                         Instant.parse("2026-09-29T01:00:00Z"));
 
