@@ -1,6 +1,6 @@
 # === Build stage ===
 # digest pin: 이미지 변경 시 docker manifest inspect로 AMD64 digest 재조회 필요
-FROM eclipse-temurin:21-jdk-alpine@sha256:cd87715a8d45cfaa42419207c64680234f62785c49055cccd20437b5c9018380 AS build
+FROM eclipse-temurin:21-jdk-alpine@sha256:0bfc69a4758a86710e5c474032d28400a8bd00874766f9e8b1642ac2fd293159 AS build
 WORKDIR /notifier
 
 # 릴리스 태그 버전 주입 (docker.yml build-args) — 기본값은 로컬 빌드용
@@ -19,7 +19,7 @@ RUN ./gradlew build -x check --no-daemon -Pversion=${VERSION}
 
 # === Runtime stage ===
 # digest pin: 이미지 변경 시 docker manifest inspect로 AMD64 digest 재조회 필요
-FROM eclipse-temurin:21-jre-alpine@sha256:1a29e1fe337eb28b5bec30f0ee8ed29f0ff80ab6f75dcf9313efe82911065a52
+FROM eclipse-temurin:21-jre-alpine@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555
 
 # 베이스 이미지(Alpine 3.24) 내장 OS 패키지 CVE 대응 (CVE-2026-93990, 2026-09-30) —
 # 위 digest는 재고정해도 CVE 공개일 이전 빌드라 동일하게 취약한 libexpat 2.8.4-r0을 포함한다
