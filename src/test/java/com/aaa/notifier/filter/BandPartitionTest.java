@@ -79,6 +79,62 @@ class BandPartitionTest {
         }
     }
 
+    @Nested
+    @DisplayName("구멍 없는 연속 파티션 — 공유 경계 반개구간 계약 (SPEC-ANALYZER-INFER-002 REQ-AIR-002)")
+    class ContiguousPartition {
+
+        /** 정련 후 analyzer 형태: 앞 밴드 상한 = 뒤 밴드 하한(소수점 넷째 자리 공유 경계). */
+        private static final BigDecimal SHARED_BOUNDARY = bd("29812.3456");
+
+        private static final BandPartition CONTIGUOUS =
+                new BandPartition(
+                        List.of(
+                                new PriceBand(bd("29000"), SHARED_BOUNDARY, Grade.BUY),
+                                new PriceBand(SHARED_BOUNDARY, bd("30500.1234"), Grade.HOLD),
+                                new PriceBand(bd("30500.1234"), bd("31000"), Grade.SELL)));
+
+        @Test
+        @DisplayName("공유 경계와 같은 가격은 뒤 밴드에 속한다")
+        void priceAtSharedBoundary_belongsToUpperBand() {
+            BandLookup lookup = CONTIGUOUS.lookup(SHARED_BOUNDARY);
+
+            assertThat(lookup.grade()).isEqualTo(Grade.HOLD);
+            assertThat(lookup.clamped()).isFalse();
+        }
+
+        @Test
+        @DisplayName("공유 경계 바로 아래 가격은 앞 밴드에 속한다")
+        void priceJustBelowSharedBoundary_belongsToLowerBand() {
+            BandLookup lookup = CONTIGUOUS.lookup(bd("29812.3455"));
+
+            assertThat(lookup.grade()).isEqualTo(Grade.BUY);
+            assertThat(lookup.clamped()).isFalse();
+        }
+
+        @Test
+        @DisplayName("마지막 밴드 상한과 같은 가격은 마지막 밴드이며 클램프가 아니다")
+        void priceAtLastUpperBound_belongsToLastBandUnclamped() {
+            BandLookup lookup = CONTIGUOUS.lookup(bd("31000"));
+
+            assertThat(lookup.grade()).isEqualTo(Grade.SELL);
+            assertThat(lookup.clamped()).isFalse();
+        }
+
+        @Test
+        @DisplayName("첫 하한 미만은 첫 밴드로, 마지막 상한 초과는 마지막 밴드로 클램프한다")
+        void pricesOutsidePartition_clampToOutermostBands() {
+            // Act
+            BandLookup below = CONTIGUOUS.lookup(bd("28999.9999"));
+            BandLookup above = CONTIGUOUS.lookup(bd("31000.0001"));
+
+            // Assert
+            assertThat(below.grade()).isEqualTo(Grade.BUY);
+            assertThat(below.clamped()).isTrue();
+            assertThat(above.grade()).isEqualTo(Grade.SELL);
+            assertThat(above.clamped()).isTrue();
+        }
+    }
+
     @Test
     @DisplayName("빈 파티션은 생성 시점에 거부한다")
     void emptyPartition_isRejected() {
