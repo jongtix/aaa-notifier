@@ -3,8 +3,6 @@ package com.aaa.notifier.filter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
@@ -32,6 +30,8 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.core.io.ClassPathResource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 수치 파라미터 외부화 가드 (REQ-032/081, AC-11, AC-23).

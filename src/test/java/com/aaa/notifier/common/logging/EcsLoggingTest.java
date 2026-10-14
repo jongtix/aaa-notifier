@@ -6,8 +6,6 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.OutputStreamAppender;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -22,6 +20,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.logging.logback.StructuredLogEncoder;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.StandardEnvironment;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * ECS JSON 구조화 로그 + KST + Trace ID 실측 검증 (REQ-NOTIFIER-FOUNDATION-015/016/018, AC-5).

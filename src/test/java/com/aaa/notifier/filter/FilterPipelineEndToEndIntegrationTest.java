@@ -15,8 +15,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.stream.MapRecord;
@@ -36,6 +37,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * ({@code @ConditionalOnMissingBean}), 신호 → {@code filter:signal} → 결정의 score/confidence, 틱 → 밴드 판정
  * → 게이트 → {@code notification_log}.
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
