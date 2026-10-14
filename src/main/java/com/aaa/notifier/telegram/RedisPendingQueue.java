@@ -1,16 +1,15 @@
 package com.aaa.notifier.telegram;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 대기 큐의 Redis List 구현 (TECHSPEC §1.3, plan.md §D.7) — 항목당 JSON 문자열 1개를 뒤로 넣고({@code RPUSH}), 앞에서
@@ -28,10 +27,12 @@ public class RedisPendingQueue implements PendingQueue {
 
     private final StringRedisTemplate redis;
     private final Duration retention;
+    // Jackson 3 기본값(알파벳 정렬·원시 타입 null 실패·모르는 필드 허용 등)이 아니라 Jackson 2 기본값으로 만들어 Boot 3.5 시절과 같은
+    // 형식을 쓰고 읽는다 — 배포·롤백 시 큐에 남은 항목을 양쪽 버전이 서로 읽어야 한다(SPEC-INFRA-BOOT4-001 REQ-BOOT4-011·016).
+    // java.time 지원은 Jackson 3에 내장이라 모듈 등록이 필요 없다.
     private final ObjectMapper objectMapper =
-            JsonMapper.builder()
-                    .addModule(new JavaTimeModule())
-                    .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            JsonMapper.builderWithJackson2Defaults()
+                    .disable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)
                     .build();
 
     @Override
@@ -39,7 +40,7 @@ public class RedisPendingQueue implements PendingQueue {
         String json;
         try {
             json = objectMapper.writeValueAsString(alert);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("대기 큐 항목 직렬화 실패 trace_id=" + alert.traceId(), e);
         }
         redis.opsForList().rightPush(KEY, json);
@@ -56,7 +57,7 @@ public class RedisPendingQueue implements PendingQueue {
         for (String entry : raw) {
             try {
                 alerts.add(objectMapper.readValue(entry, QueuedAlert.class));
-            } catch (JsonProcessingException e) {
+            } catch (JacksonException e) {
                 log.warn(
                         "[telegram-queue] 해석할 수 없는 대기 큐 항목 — 건수로만 센다 error={}",
                         e.getOriginalMessage());

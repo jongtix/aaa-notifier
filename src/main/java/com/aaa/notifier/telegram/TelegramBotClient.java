@@ -3,10 +3,6 @@ package com.aaa.notifier.telegram;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.http.HttpClient;
@@ -20,6 +16,10 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.DefaultUriBuilderFactory;
 import org.springframework.web.util.DefaultUriBuilderFactory.EncodingMode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 매매봇 Bot API 클라이언트 — Spring {@code RestClient} 직접 호출 (설계 초안 [D-2], 봇 라이브러리·WebClient 미사용).
@@ -45,7 +45,9 @@ public class TelegramBotClient implements TelegramApi, AutoCloseable {
     private final String chatId;
     private final HttpClient httpClient;
     private final RestClient restClient;
-    private final ObjectMapper objectMapper = JsonMapper.builder().build();
+    // 응답 읽기 전용 — Jackson 2 기본값으로 만들어 Boot 3.5 시절과 같은 응답을 같은 값으로 읽는다(SPEC-INFRA-BOOT4-001
+    // REQ-BOOT4-011).
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     /**
      * @param baseUrl Bot API 기준 URL
@@ -147,7 +149,7 @@ public class TelegramBotClient implements TelegramApi, AutoCloseable {
         }
         try {
             return objectMapper.readValue(body, TelegramResponse.class);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return null;
         }
     }

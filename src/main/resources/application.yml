@@ -10,6 +10,9 @@ spring:
   jackson:
     time-zone: Asia/Seoul
     property-naming-strategy: SNAKE_CASE
+    # Boot 4(Jackson 3) 자동구성 매퍼를 Boot 3.5(Jackson 2) 시절 기본값으로 맞춘다 — Jackson 3 기본값 채택은 후속 SPEC 소관
+    # (SPEC-INFRA-BOOT4-001 design.md D2). notifier 운영 코드에는 이 매퍼의 소비자가 없지만 두 서비스의 spring.jackson.* 의미를 같게 둔다.
+    use-jackson2-defaults: true
   data:
     redis:
       # Redis 연결 — 스트림 소비(CONSUMER-001)와 readiness PING이 사용한다. 필터 상태 저장소(filter:* 키) 읽기/쓰기는 FILTER-001 소관이다.

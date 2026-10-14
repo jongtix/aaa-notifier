@@ -6,8 +6,8 @@ import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -27,7 +27,7 @@ class RedisCommandTimeoutDefaultsTest {
     private final ApplicationContextRunner runner =
             new ApplicationContextRunner()
                     .withInitializer(new ConfigDataApplicationContextInitializer())
-                    .withConfiguration(AutoConfigurations.of(RedisAutoConfiguration.class))
+                    .withConfiguration(AutoConfigurations.of(DataRedisAutoConfiguration.class))
                     // application.yml의 환경변수 자리만 채운다. 타임아웃은 건드리지 않는다.
                     .withPropertyValues(
                             "REDIS_HOST=localhost",

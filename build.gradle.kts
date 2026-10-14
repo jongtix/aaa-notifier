@@ -18,13 +18,6 @@ java {
     }
 }
 
-// --- Spring Boot BOM 관리 버전 덮어쓰기 (CVE-2026-68497 대응, 2026-09-30) ---
-// 실제 버전 값은 gradle/libs.versions.toml 단일 소스(CLAUDE.md)에서 관리한다 — 여기서는 값을
-// 하드코딩하지 않고 카탈로그를 참조만 한다. 만료 게이트(DependencyVersionOverrideExpiryTest,
-// 2026-12-30)가 지나면, Boot가 이 CVE를 흡수했는지 확인 후 흡수했다면 이 블록 + 카탈로그의
-// jackson2Bom 항목 + 해당 테스트를 함께 제거한다.
-extra["jackson-bom.version"] = libs.versions.jackson2Bom.get() // 실측: jackson-2-bom.version은 무효, 이 키만 유효
-
 // --- JaCoCo 버전 고정 (libs.versions.toml 단일 소스) ---
 jacoco {
     toolVersion = libs.versions.jacoco.get()
@@ -121,7 +114,7 @@ repositories {
 
 dependencies {
     // --- Runtime ---
-    implementation(libs.spring.boot.starter.web)          // 내장 Tomcat, Spring MVC, Jackson
+    implementation(libs.spring.boot.starter.webmvc)       // 내장 Tomcat, Spring MVC, Jackson
     implementation(libs.spring.boot.starter.actuator)     // 헬스체크 + Prometheus 노출 엔드포인트
     implementation(libs.micrometer.registry.prometheus)   // /actuator/prometheus (VictoriaMetrics 호환) 노출
     implementation(libs.spring.boot.starter.data.redis)   // Redis 연동 (필터 상태 저장소 filter:* 키 — FILTER-001)
@@ -141,6 +134,8 @@ dependencies {
     testImplementation(libs.testcontainers.mysql)          // Testcontainers MySQL (FILTER-001 참조 적재·DRYRUN INSERT 실측)
     testRuntimeOnly(libs.commons.codec)                    // Testcontainers MySQLContainer가 요구하는 전이 의존성 (collector와 동일)
     testImplementation(libs.spring.boot.testcontainers)    // @ServiceConnection 지원
+    testImplementation(libs.spring.boot.resttestclient)    // TestRestTemplate + @AutoConfigureTestRestTemplate (Boot 4 분리 모듈)
+    testImplementation(libs.spring.boot.restclient)        // TestRestTemplate이 참조하는 RestTemplateBuilder (Boot 4 분리 모듈)
     testRuntimeOnly(libs.junit.platform.launcher)          // IDE/Gradle 테스트 실행 엔진
 
     // --- Static Analysis ---
@@ -190,22 +185,6 @@ dependencyManagement {
         dependency("org.apache.commons:commons-lang3:3.21.0")
     }
 }
-
-// Spring Boot 3.5.16 BOM(spring-boot-dependencies)이 관리하는 tomcat-embed-core:10.1.55 /
-// netty-handler:4.1.135.Final(런타임 실제 합의 버전은 4.1.136.Final)에 Trivy CRITICAL CVE가 있다.
-// - org.apache.tomcat.embed:tomcat-embed-core 10.1.55 → CVE-2026-65182 / CVE-2026-65905 / CVE-2026-68525
-//   (수정: 11.0.25, 10.1.58, 9.0.121 — 10.1.58은 Maven Central에 미배포(57→59로 결번)이므로
-//   같은 10.1.x 라인의 최신 배포판인 10.1.60을 사용한다. 메이저 라인 점프는 이 CVE 대응 범위를 벗어나는
-//   더 큰 변경이라 피한다.)
-// - io.netty:netty-handler 4.1.136.Final → CVE-2026-75595 (수정: 4.2.17.Final 또는 4.1.137.Final —
-//   마이너 라인 유지를 위해 4.1.137.Final을 사용한다.)
-// Spring Boot 3.5.16 릴리스 시점 기준 BOM 자체는 아직 수정 버전을 관리하지 않는다(업스트림 지연이 아니라
-// "고정 버전 미도달" 상태 — REQ-CVE-016 기준 .trivyignore 예외 대상이 아니라 오버라이드 대상).
-// Tomcat은 core/websocket/el 세 아티팩트가 spring-boot-starter-web을 통해 함께 해석되므로(버전 스큐 방지 필수)
-// 아티팩트별 dependency(...) 오버라이드 대신, Spring Boot dependency-management 플러그인이 인식하는
-// BOM 프로퍼티(tomcat.version/netty.version)를 재정의해 한 줄로 세 아티팩트 전부를 일괄 고정한다.
-extra["tomcat.version"] = "10.1.60"
-extra["netty.version"] = "4.1.137.Final"
 
 tasks.withType<com.github.spotbugs.snom.SpotBugsTask> {
     reports.create("html") { required.set(true) }

@@ -10,6 +10,8 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import com.aaa.notifier.telegram.SendOutcome.Kind;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.http.Fault;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
@@ -45,8 +48,18 @@ class TelegramBotClientTest {
     private WireMockServer stub;
     private TelegramBotClient client;
 
+    /**
+     * WireMock 4(Jetty 12.1) 스텁 서버 자신의 로그 — 지연 응답이 남은 채로 스텁을 멈추면 Jetty가 요청 URL(토큰 포함)을 WARN으로 남긴다.
+     * 테스트 대역 서버의 로그일 뿐 운영 클라이언트 경로가 아니므로, 토큰 비노출 단언(AC-15)이 운영 코드 로그만 보도록 이 테스트 동안 ERROR로 올린다.
+     */
+    private final Logger jettyLogger = (Logger) LoggerFactory.getLogger("org.eclipse.jetty");
+
+    private Level jettyLevel;
+
     @BeforeEach
     void setUp() {
+        jettyLevel = jettyLogger.getLevel();
+        jettyLogger.setLevel(Level.ERROR);
         stub = new WireMockServer(options().dynamicPort());
         stub.start();
         client =
@@ -62,6 +75,7 @@ class TelegramBotClientTest {
     void tearDown() {
         client.close();
         stub.stop();
+        jettyLogger.setLevel(jettyLevel);
     }
 
     private void stubSend(int status, String body) {

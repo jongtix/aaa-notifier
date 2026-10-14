@@ -9,9 +9,9 @@ import java.time.Clock;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
+import org.springframework.boot.jdbc.autoconfigure.JdbcTemplateAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,7 +31,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * 파이프라인 주입이 모호해진다.
  */
 @AutoConfiguration(
-        after = {RedisAutoConfiguration.class, JdbcTemplateAutoConfiguration.class},
+        after = {DataRedisAutoConfiguration.class, JdbcTemplateAutoConfiguration.class},
         before = FilterAutoConfiguration.class)
 @ConditionalOnBean({StringRedisTemplate.class, JdbcTemplate.class})
 @ConditionalOnProperty(prefix = "notifier.telegram", name = "enabled", havingValue = "true")

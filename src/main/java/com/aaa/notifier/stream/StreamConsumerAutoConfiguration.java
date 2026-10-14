@@ -7,8 +7,8 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -21,11 +21,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
  * RedisHealthConfig}가 같은 함정을 실측으로 확인했다). 둘째, {@code @ConditionalOnMissingBean}으로 FILTER-001의 핸들러
  * 구현체에 자리를 내주려면 사용자 빈이 먼저 등록된 뒤에 평가되어야 하는데, 그 순서를 보장하는 것이 auto-configuration이다.
  *
- * <p>{@code @ConditionalOnBean(StringRedisTemplate.class)}는 smoke 프로파일(RedisAutoConfiguration 제외)에서
- * 소비 계층 전체가 조용히 비활성화되게 한다 — 이 조건이 없으면 Redis 없는 컨텍스트의 기동 자체가 깨진다.
+ * <p>{@code @ConditionalOnBean(StringRedisTemplate.class)}는 smoke 프로파일(DataRedisAutoConfiguration
+ * 제외)에서 소비 계층 전체가 조용히 비활성화되게 한다 — 이 조건이 없으면 Redis 없는 컨텍스트의 기동 자체가 깨진다.
  */
 @Slf4j
-@AutoConfiguration(after = RedisAutoConfiguration.class)
+@AutoConfiguration(after = DataRedisAutoConfiguration.class)
 @EnableConfigurationProperties(StreamConsumerProperties.class)
 @ConditionalOnBean(StringRedisTemplate.class)
 public class StreamConsumerAutoConfiguration {
