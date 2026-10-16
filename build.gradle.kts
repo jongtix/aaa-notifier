@@ -18,6 +18,19 @@ java {
     }
 }
 
+// --- Spring Boot BOM 관리 버전 덮어쓰기 (Trivy CRITICAL/HIGH 대응, 2026-10-16) ---
+// - tomcat-embed-core 11.0.24 → CVE-2026-65182 / CVE-2026-65905 / CVE-2026-68525 (수정: 11.0.25)
+// - tools.jackson jackson-core 3.1.5 → CVE-2026-89407 / CVE-2026-89425,
+//   jackson-databind 3.1.5 → CVE-2026-68497 / CVE-2026-91776 / CVE-2026-91777 (수정: 3.1.7)
+// 실제 버전 값은 gradle/libs.versions.toml 단일 소스(CLAUDE.md)에서 관리한다 — 여기서는 값을
+// 하드코딩하지 않고 카탈로그를 참조만 한다. Boot 4에서 jackson-bom.version은 Jackson 3 BOM
+// (tools.jackson:jackson-bom)이므로 3.x 값이어야 하며, Jackson 2 BOM(jackson-2-bom.version)은
+// 덮어쓰지 않는다. Tomcat은 core/websocket/el 아티팩트가 함께 해석되므로 BOM 프로퍼티 한 줄로
+// 일괄 고정한다. 만료 게이트(DependencyVersionOverrideExpiryTest)가 지나면 Boot가 흡수했는지
+// 확인 후 흡수한 항목의 이 줄 + 카탈로그 항목 + 해당 테스트 메서드를 함께 제거한다.
+extra["tomcat.version"] = libs.versions.tomcat.get()
+extra["jackson-bom.version"] = libs.versions.jackson3Bom.get()
+
 // --- JaCoCo 버전 고정 (libs.versions.toml 단일 소스) ---
 jacoco {
     toolVersion = libs.versions.jacoco.get()
