@@ -13,6 +13,20 @@ jacoco = "0.8.13"
 # 의존성 버전 단일 소스 원칙(CLAUDE.md)에 따라 BOM 관리 버전과 동일하게 명시 핀 고정한다(collector와 동일 근거).
 micrometer = "1.17.1"
 
+# Tomcat(tomcat-embed-core CVE-2026-65182 / CVE-2026-65905 / CVE-2026-68525 대응, 2026-10-16) —
+# Spring Boot 4.1.1 BOM이 관리하는 11.0.24는 Trivy CRITICAL 3건에 걸리고 수정판은 11.0.25다
+# (같은 11.0.x 라인). build.gradle.kts에서 tomcat.version 오버라이드로 소비한다(core/websocket/el
+# 버전 스큐 방지). 만료 게이트: DependencyVersionOverrideExpiryTest(2026-12-09) — Boot가 흡수하면
+# 이 항목+오버라이드+테스트의 해당 메서드를 함께 제거한다.
+tomcat = "11.0.25"
+# Jackson 3 Bom(jackson-core CVE-2026-89407·CVE-2026-89425, jackson-databind CVE-2026-68497·
+# CVE-2026-91776·CVE-2026-91777 대응, 2026-10-16) — Boot 4.1.1 BOM이 관리하는 tools.jackson 3.1.5는
+# Trivy HIGH 5건에 걸리고 수정판은 3.1.7이다. Boot 4에서 jackson-bom.version은 Jackson 3 BOM
+# (tools.jackson:jackson-bom)을 가리키므로 Jackson 2 값(2.x)을 넣으면 안 된다. Jackson 2 BOM
+# (jackson-2-bom.version)은 건드리지 않는다. build.gradle.kts에서 jackson-bom.version 오버라이드로
+# 소비한다. 만료 게이트: DependencyVersionOverrideExpiryTest(2026-12-30).
+jackson3Bom = "3.1.7"
+
 [libraries]
 # Spring Boot (버전은 spring-dependency-management가 관리)
 spring-boot-starter-webmvc = { group = "org.springframework.boot", name = "spring-boot-starter-webmvc" }
