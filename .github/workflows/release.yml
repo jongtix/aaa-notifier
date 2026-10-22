@@ -65,7 +65,7 @@ jobs:
       # 잠금 상태 생성 스텝 — 이름은 "Derive"로 시작한다(실패 스텝을 이름으로 식별).
       # init 스크립트는 CI 작업 공간에서만 쓰이며 gradle.lockfile은 이 작업 공간 밖으로 나가지 않는다.
       - name: Derive lock state of production runtime classpath
-        run: ./gradlew dependencies --configuration productionRuntimeClasspath --write-locks --init-script .github/gradle/dependency-scan-lock.init.gradle --no-daemon
+        run: ./gradlew dependencies --configuration developmentOnly --write-locks --init-script .github/gradle/dependency-scan-lock.init.gradle --no-daemon
 
       # 입력 확인 스텝 — 이름은 "Assert"로 시작한다.
       # trivy fs는 지원 파일이 없거나 GAV 줄이 하나도 없어도 종료 코드 0으로 끝나므로 빈 입력을 직접 막는다.
