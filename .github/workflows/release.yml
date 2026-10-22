@@ -86,6 +86,9 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
+          cache: false
+        env:
+          TRIVY_DB_REPOSITORY: example.invalid/aquasecurity/trivy-db
 
   release:
     needs: test
