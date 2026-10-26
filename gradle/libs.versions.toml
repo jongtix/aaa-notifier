@@ -11,7 +11,7 @@ findsecbugs = "1.14.0"
 jacoco = "0.8.13"
 # micrometer-registry-prometheus는 Spring Boot BOM(spring-boot 4.1.1 → micrometer 1.17.1)이 관리하나,
 # 의존성 버전 단일 소스 원칙(CLAUDE.md)에 따라 BOM 관리 버전과 동일하게 명시 핀 고정한다(collector와 동일 근거).
-micrometer = "1.17.1"
+micrometer = "1.17.2"
 
 # Tomcat(tomcat-embed-core CVE-2026-65182 / CVE-2026-65905 / CVE-2026-68525 대응, 2026-10-16) —
 # Spring Boot 4.1.1 BOM이 관리하는 11.0.24는 Trivy CRITICAL 3건에 걸리고 수정판은 11.0.25다
