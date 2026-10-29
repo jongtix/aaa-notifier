@@ -74,6 +74,7 @@ class JdbcNotificationLogIntegrationTest {
         return new AlertDecision(
                 stockId,
                 base.symbol(),
+                base.name(),
                 base.market(),
                 base.horizon(),
                 base.fromGrade(),

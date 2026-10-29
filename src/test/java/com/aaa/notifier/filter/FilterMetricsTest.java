@@ -118,6 +118,7 @@ class FilterMetricsTest {
                 new AlertDecision(
                         1L,
                         "005930",
+                        "테스트종목",
                         Market.DOMESTIC,
                         "D20",
                         Grade.HOLD,

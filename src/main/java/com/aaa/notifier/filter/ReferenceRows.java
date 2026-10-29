@@ -9,8 +9,11 @@ import java.time.LocalDate;
  */
 interface ReferenceRows {
 
-    /** {@code stocks} 1행. {@code market}이 미지원 값이면 {@code null}. */
-    record StockRow(long id, String symbol, Market market) {}
+    /**
+     * {@code stocks} 1행. {@code name}({@code name_ko})이 비어 있거나 {@code market}이 미지원 값이면 {@code
+     * null}.
+     */
+    record StockRow(long id, String symbol, String name, Market market) {}
 
     /** {@code daily_ohlcv} 1행 (참조 산출에 필요한 컬럼만). */
     record OhlcvRow(

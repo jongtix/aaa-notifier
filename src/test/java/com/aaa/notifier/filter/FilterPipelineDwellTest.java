@@ -88,6 +88,7 @@ class FilterPipelineDwellTest {
         return new StockReference(
                 1L,
                 symbol,
+                "테스트종목",
                 market,
                 FilterTestFixtures.PREV_DAY,
                 bd(prevClose),
@@ -502,6 +503,7 @@ class FilterPipelineDwellTest {
                     new StockReference(
                             2L,
                             "000660",
+                            "테스트종목",
                             Market.DOMESTIC,
                             FilterTestFixtures.PREV_DAY,
                             bd("25000"),
@@ -642,6 +644,7 @@ class FilterPipelineDwellTest {
                             new StockReference(
                                     1L,
                                     SYMBOL,
+                                    "테스트종목",
                                     Market.DOMESTIC,
                                     FilterTestFixtures.PREV_DAY,
                                     bd("25000"),

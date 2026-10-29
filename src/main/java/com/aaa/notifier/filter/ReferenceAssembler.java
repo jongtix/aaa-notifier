@@ -57,6 +57,7 @@ final class ReferenceAssembler {
                 new StockReference(
                         stock.id(),
                         stock.symbol(),
+                        stock.name(),
                         stock.market(),
                         previous.tradeDate(),
                         previous.close(),

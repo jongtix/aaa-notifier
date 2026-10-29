@@ -76,6 +76,7 @@ class ReferenceDataRefresherTest {
         return new StockReference(
                 1L,
                 symbol,
+                "테스트종목",
                 market,
                 LocalDate.of(2026, 9, 28),
                 new BigDecimal("30000"),

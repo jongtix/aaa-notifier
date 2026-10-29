@@ -73,6 +73,7 @@ final class FilterTestFixtures {
         return new StockReference(
                 1L,
                 "005930",
+                "테스트종목",
                 Market.DOMESTIC,
                 PREV_DAY,
                 bd("30000"),

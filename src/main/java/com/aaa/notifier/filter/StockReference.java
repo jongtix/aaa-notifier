@@ -11,6 +11,7 @@ import java.util.Objects;
  *
  * @param stockId {@code stocks.id} — DRYRUN INSERT의 {@code stock_id}로 재사용한다(신규 SELECT 없음)
  * @param symbol 정규 종목 심볼 ({@code stocks.symbol})
+ * @param name 종목명 ({@code stocks.name_ko}) — 알림 본문 표기용이며 비어 있으면 {@code null}
  * @param market 시장 구분
  * @param prevTradeDate 전일(직전 거래일) 일봉 날짜 — 밴드 기준일과 같아야 한다
  * @param prevClose 전일 종가
@@ -21,6 +22,7 @@ import java.util.Objects;
 public record StockReference(
         long stockId,
         String symbol,
+        String name,
         Market market,
         LocalDate prevTradeDate,
         BigDecimal prevClose,
