@@ -5,9 +5,10 @@ CREATE TABLE stocks
 (
     id                   BIGINT AUTO_INCREMENT PRIMARY KEY,
     symbol               VARCHAR(16) NOT NULL,
+    name_ko              VARCHAR(100) NULL,
     market               VARCHAR(10) NOT NULL,
     asset_type           VARCHAR(10) NOT NULL,
-    active               BOOLEAN     NOT NULL DEFAULT TRUE,
+    active             BOOLEAN     NOT NULL DEFAULT TRUE,
     watchlist_removed_at DATETIME    NULL,
     delisted_at          DATE        NULL,
     created_at           DATETIME    NOT NULL,

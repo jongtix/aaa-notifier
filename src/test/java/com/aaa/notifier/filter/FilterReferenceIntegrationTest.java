@@ -60,6 +60,7 @@ class FilterReferenceIntegrationTest {
         FilterDbFixtures.truncate(jdbcTemplate);
         redisTemplate.delete(FilterKeys.grade("005930", "D20"));
         stockId = FilterDbFixtures.insertStock(jdbcTemplate, "005930", "KOSPI");
+        jdbcTemplate.update("UPDATE stocks SET name_ko = ? WHERE id = ?", "삼성전자", stockId);
         FilterDbFixtures.insertFlatOhlcv(jdbcTemplate, stockId, 25, "30000", "100", 1_000_000L);
         FilterDbFixtures.insertBands(
                 jdbcTemplate,
@@ -92,6 +93,17 @@ class FilterReferenceIntegrationTest {
         assertThat(reference.averageVolume()).isEqualByComparingTo("1000000");
         assertThat(reference.atr()).isEqualByComparingTo("200");
         assertThat(reference.bands()).containsOnlyKeys("D20");
+    }
+
+    @Test
+    @DisplayName("알림 본문 표기용 종목명(stocks.name_ko)이 참조 데이터와 함께 적재된다")
+    void domesticPreOpen_loadsStockName() {
+        // Act
+        refresher.onDomesticPreOpen();
+
+        // Assert
+        assertThat(holder.current().find(Market.DOMESTIC, "005930").orElseThrow().name())
+                .isEqualTo("삼성전자");
     }
 
     @Test

@@ -152,6 +152,7 @@ public class TransitionGate {
         return new AlertDecision(
                 reference.stockId(),
                 reference.symbol(),
+                reference.name(),
                 reference.market(),
                 detection.horizon(),
                 detection.pending().from(),

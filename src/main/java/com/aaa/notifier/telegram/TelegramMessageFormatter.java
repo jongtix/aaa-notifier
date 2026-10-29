@@ -92,7 +92,7 @@ public class TelegramMessageFormatter {
         text.append("[Tier ")
                 .append(decision.tier())
                 .append("] ")
-                .append(escape(decision.symbol()))
+                .append(stockLabel(decision.name(), decision.symbol()))
                 .append(' ')
                 .append(horizonLabel(decision.horizon()))
                 .append("\n<b>")
@@ -103,7 +103,7 @@ public class TelegramMessageFormatter {
                 .append(escape(formatScore(decision.score())))
                 .append(" · ")
                 .append(escape(formatConfidence(decision.confidence())))
-                .append("\n발동가 ")
+                .append("\n기준가 ")
                 .append(escape(formatPrice(decision.triggerPrice())));
         if (decision.lowConfidenceFlag()) {
             text.append("\n⚠ 저확신");
@@ -150,31 +150,38 @@ public class TelegramMessageFormatter {
         };
     }
 
-    /** {@code D20} → {@code [단기]}, {@code D60} → {@code [중기]}, 그 밖은 원문을 이스케이프해 괄호로 감싼다. */
+    /** {@code D20} → {@code [단기 20일]}, {@code D60} → {@code [중기 60일]}, 그 밖은 원문을 이스케이프해 괄호로 감싼다. */
     static String horizonLabel(String horizon) {
         return switch (horizon) {
-            case "D20" -> "[단기]";
-            case "D60" -> "[중기]";
+            case "D20" -> "[단기 20일]";
+            case "D60" -> "[중기 60일]";
             default -> "[" + escape(horizon) + "]";
         };
     }
 
-    /** score를 부호 있는 백분율로 ({@code 0.043} → {@code +4.30%}). {@code null}이면 미표기 문구. */
+    /** 종목 표기 — {@code 종목명(종목코드)}. 종목명이 비어 있으면 종목코드만 표기한다. */
+    static String stockLabel(String name, String symbol) {
+        if (name == null || name.isBlank()) {
+            return escape(symbol);
+        }
+        return escape(name) + "(" + escape(symbol) + ")";
+    }
+
+    /** score(기대수익률)를 부호 있는 백분율로 ({@code 0.043} → {@code 예상 수익 +4.30%}). {@code null}이면 미표기 문구. */
     static String formatScore(BigDecimal score) {
         if (score == null) {
-            return "score 미수신";
+            return "예상 수익 미수신";
         }
         BigDecimal percent = score.movePointRight(2).setScale(PERCENT_SCALE, RoundingMode.HALF_UP);
         String sign = percent.signum() >= 0 ? "+" : "";
-        return "score " + sign + percent.toPlainString() + "%";
+        return "예상 수익 " + sign + percent.toPlainString() + "%";
     }
 
     private static String formatConfidence(BigDecimal confidence) {
         if (confidence == null) {
-            return "confidence 미수신";
+            return "정확도 미수신";
         }
-        return "confidence "
-                + confidence.setScale(CONFIDENCE_SCALE, RoundingMode.HALF_UP).toPlainString();
+        return "정확도 " + confidence.setScale(CONFIDENCE_SCALE, RoundingMode.HALF_UP).toPlainString();
     }
 
     private static String formatPrice(BigDecimal price) {

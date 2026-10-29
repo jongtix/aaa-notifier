@@ -61,6 +61,7 @@ class FilterDecisionSinkIntegrationTest {
         return new AlertDecision(
                 stockId,
                 decision.symbol(),
+                decision.name(),
                 decision.market(),
                 decision.horizon(),
                 decision.fromGrade(),

@@ -98,8 +98,8 @@ class ReferenceDataLoaderTest {
         ohlcv.addAll(flatOhlcv(2L));
         stubQueries(
                 List.of(
-                        new StockRow(1L, "005930", Market.DOMESTIC),
-                        new StockRow(2L, "000660", Market.DOMESTIC)),
+                        new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC),
+                        new StockRow(2L, "000660", "테스트종목", Market.DOMESTIC)),
                 ohlcv,
                 bandRows);
 
@@ -120,7 +120,7 @@ class ReferenceDataLoaderTest {
     void load_computesReferenceFromHistoryExcludingToday() {
         // Arrange
         stubQueries(
-                List.of(new StockRow(1L, "005930", Market.DOMESTIC)),
+                List.of(new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC)),
                 flatOhlcv(1L),
                 bands(1L, PREV_DAY));
 
@@ -139,7 +139,7 @@ class ReferenceDataLoaderTest {
     void load_keepsOnlyHorizonsWithBothPartitions() {
         // Arrange
         stubQueries(
-                List.of(new StockRow(1L, "005930", Market.DOMESTIC)),
+                List.of(new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC)),
                 flatOhlcv(1L),
                 bands(1L, PREV_DAY));
 
@@ -159,7 +159,7 @@ class ReferenceDataLoaderTest {
     void load_ignoresStaleBands() {
         // Arrange
         stubQueries(
-                List.of(new StockRow(1L, "005930", Market.DOMESTIC)),
+                List.of(new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC)),
                 flatOhlcv(1L),
                 bands(1L, PREV_DAY.minusDays(1)));
 
@@ -176,7 +176,7 @@ class ReferenceDataLoaderTest {
         // Arrange
         List<OhlcvRow> shortHistory = flatOhlcv(1L).subList(10, 16);
         stubQueries(
-                List.of(new StockRow(1L, "005930", Market.DOMESTIC)),
+                List.of(new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC)),
                 shortHistory,
                 bands(1L, PREV_DAY));
 
@@ -192,7 +192,8 @@ class ReferenceDataLoaderTest {
     @DisplayName("일봉이 전혀 없는 종목은 스냅샷에서 제외한다")
     void load_skipsStocksWithoutHistory() {
         // Arrange
-        stubQueries(List.of(new StockRow(9L, "AAPL", Market.OVERSEAS)), List.of(), List.of());
+        stubQueries(
+                List.of(new StockRow(9L, "AAPL", "테스트종목", Market.OVERSEAS)), List.of(), List.of());
 
         // Act
         ReferenceSnapshot snapshot = loader.load(TODAY);

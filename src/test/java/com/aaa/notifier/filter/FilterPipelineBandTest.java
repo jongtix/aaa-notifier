@@ -149,6 +149,7 @@ class FilterPipelineBandTest {
                 new StockReference(
                         9L,
                         "AAPL",
+                        "테스트종목",
                         Market.OVERSEAS,
                         FilterTestFixtures.PREV_DAY,
                         bd("100.0000"),
@@ -202,6 +203,7 @@ class FilterPipelineBandTest {
                 new StockReference(
                         9L,
                         "AAPL",
+                        "테스트종목",
                         Market.OVERSEAS,
                         FilterTestFixtures.PREV_DAY,
                         bd("100.0000"),

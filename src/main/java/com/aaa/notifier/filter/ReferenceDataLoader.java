@@ -30,7 +30,7 @@ public class ReferenceDataLoader {
             "active = TRUE AND watchlist_removed_at IS NULL AND delisted_at IS NULL";
 
     static final String STOCKS_SQL =
-            "SELECT id, symbol, market FROM stocks WHERE " + WATCHED_CONDITION;
+            "SELECT id, symbol, name_ko, market FROM stocks WHERE " + WATCHED_CONDITION;
 
     static final String OHLCV_SQL =
             "SELECT stock_id, trade_date, high_price, low_price, close_price, volume"
@@ -61,6 +61,7 @@ public class ReferenceDataLoader {
                     new StockRow(
                             rs.getLong("id"),
                             rs.getString("symbol"),
+                            rs.getString("name_ko"),
                             toMarket(rs.getString("market")).orElse(null));
 
     private static final RowMapper<OhlcvRow> OHLCV_MAPPER =

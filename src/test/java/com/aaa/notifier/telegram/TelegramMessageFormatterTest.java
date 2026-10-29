@@ -13,40 +13,70 @@ class TelegramMessageFormatterTest {
     private final TelegramMessageFormatter formatter = new TelegramMessageFormatter();
 
     @Test
-    @DisplayName("AC-05 — 심볼·[단기]·두 등급·부호 있는 백분율 score·confidence·발동가·Tier 라벨·저확신 태그가 모두 있다")
+    @DisplayName("AC-05 — 종목명(코드)·[단기 20일]·두 등급·부호 있는 백분율 예상 수익·정확도·기준가·Tier 라벨·저확신 태그가 모두 있다")
     void acFive_containsEveryField() {
         String text = formatter.formatAlert(TelegramAlerts.acFive());
 
         assertThat(text)
-                .contains("BRK.B")
-                .contains("[단기]")
+                .contains("테스트종목(BRK.B)")
+                .contains("[단기 20일]")
                 .contains("<b>BUY</b> → <b>STRONG_BUY</b>")
-                .contains("-4.30%")
-                .contains("0.612")
-                .contains("412.5")
+                .contains("예상 수익 -4.30%")
+                .contains("정확도 0.612")
+                .contains("기준가 412.5")
                 .contains("Tier 1")
                 .contains("저확신");
     }
 
     @Test
+    @DisplayName("본문은 [Tier N] 종목명(코드) [horizon] / 등급 전환 / 예상 수익·정확도 / 기준가 순서로 줄을 이룬다")
+    void alert_hasExpectedLineLayout() {
+        String text = formatter.formatAlert(TelegramAlerts.candidate("t1"));
+
+        assertThat(text)
+                .isEqualTo(
+                        "[Tier 2] 테스트종목(005930) [단기 20일]\n"
+                                + "<b>HOLD</b> → <b>BUY</b>\n"
+                                + "예상 수익 +4.30% · 정확도 0.712\n"
+                                + "기준가 30600");
+    }
+
+    @Test
+    @DisplayName("종목명이 없으면 종목코드만 표기한다")
+    void blankName_fallsBackToSymbolOnly() {
+        assertThat(formatter.formatAlert(TelegramAlerts.withName(null)))
+                .startsWith("[Tier 2] 005930 [단기 20일]");
+        assertThat(formatter.formatAlert(TelegramAlerts.withName("  ")))
+                .startsWith("[Tier 2] 005930 [단기 20일]");
+    }
+
+    @Test
+    @DisplayName("종목명의 HTML 예약 문자(<·>·&)를 이스케이프한다")
+    void reservedCharactersInName_areEscaped() {
+        String text = formatter.formatAlert(TelegramAlerts.withName("A&B <우선주>"));
+
+        assertThat(text).contains("A&amp;B &lt;우선주&gt;(005930)").doesNotContain("<우선주>");
+    }
+
+    @Test
     @DisplayName("양수 score는 + 부호로 표기한다 (0.043 → +4.30%)")
     void positiveScore_hasPlusSign() {
-        assertThat(formatter.formatAlert(TelegramAlerts.candidate("t1"))).contains("+4.30%");
+        assertThat(formatter.formatAlert(TelegramAlerts.candidate("t1"))).contains("예상 수익 +4.30%");
     }
 
     @Test
-    @DisplayName("AC-05 ① — D60은 [중기]로 표기한다")
+    @DisplayName("AC-05 ① — D60은 [중기 60일]로 표기한다")
     void midTermHorizon() {
         assertThat(formatter.formatAlert(TelegramAlerts.candidate("t1", "005930", "D60")))
-                .contains("[중기]");
+                .contains("[중기 60일]");
     }
 
     @Test
-    @DisplayName("AC-05 ② — score·confidence가 null이면 미표기 문구로 렌더링하고 예외가 없다")
+    @DisplayName("AC-05 ② — 예상 수익·정확도가 null이면 미표기 문구로 렌더링하고 예외가 없다")
     void nullSignal_rendersPlaceholder() {
         String text = formatter.formatAlert(TelegramAlerts.withoutSignal("t1"));
 
-        assertThat(text).contains("score 미수신").contains("confidence 미수신");
+        assertThat(text).contains("예상 수익 미수신").contains("정확도 미수신");
     }
 
     @Test

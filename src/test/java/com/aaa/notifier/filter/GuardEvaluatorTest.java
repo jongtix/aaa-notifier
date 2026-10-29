@@ -34,6 +34,7 @@ class GuardEvaluatorTest {
             new StockReference(
                     1L,
                     "005930",
+                    "테스트종목",
                     Market.DOMESTIC,
                     LocalDate.of(2026, 9, 28),
                     bd("30000"),
@@ -98,6 +99,7 @@ class GuardEvaluatorTest {
                     new StockReference(
                             1L,
                             "005930",
+                            "테스트종목",
                             Market.DOMESTIC,
                             LocalDate.of(2026, 9, 28),
                             bd("30000"),
@@ -142,6 +144,7 @@ class GuardEvaluatorTest {
                     new StockReference(
                             9L,
                             "AAPL",
+                            "테스트종목",
                             Market.OVERSEAS,
                             LocalDate.of(2026, 9, 28),
                             bd("100"),
@@ -181,6 +184,7 @@ class GuardEvaluatorTest {
                     new StockReference(
                             1L,
                             "005930",
+                            "테스트종목",
                             Market.DOMESTIC,
                             LocalDate.of(2026, 9, 28),
                             bd("30000"),

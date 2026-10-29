@@ -14,6 +14,7 @@ import java.util.Objects;
  *
  * @param stockId {@code stocks.id} — 장전 적재 매핑 재사용(신규 SELECT 없음)
  * @param symbol 정규 종목 심볼
+ * @param name 종목명 — 알림 본문 표기용이며 비어 있으면 {@code null}
  * @param market 시장 구분
  * @param horizon {@code "D20"}/{@code "D60"} — 무변환 보존
  * @param fromGrade 전환 전 유효 등급
@@ -33,6 +34,7 @@ import java.util.Objects;
 public record AlertDecision(
         long stockId,
         String symbol,
+        String name,
         Market market,
         String horizon,
         Grade fromGrade,

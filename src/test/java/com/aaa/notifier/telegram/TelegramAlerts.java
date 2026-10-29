@@ -20,6 +20,7 @@ final class TelegramAlerts {
         return new AlertDecision(
                 7L,
                 "BRK.B",
+                "테스트종목",
                 Market.OVERSEAS,
                 "D20",
                 Grade.BUY,
@@ -45,6 +46,7 @@ final class TelegramAlerts {
         return new AlertDecision(
                 1L,
                 symbol,
+                "테스트종목",
                 Market.DOMESTIC,
                 horizon,
                 Grade.HOLD,
@@ -67,6 +69,7 @@ final class TelegramAlerts {
         return new AlertDecision(
                 base.stockId(),
                 base.symbol(),
+                base.name(),
                 base.market(),
                 base.horizon(),
                 base.fromGrade(),
@@ -89,6 +92,7 @@ final class TelegramAlerts {
         return new AlertDecision(
                 base.stockId(),
                 base.symbol(),
+                base.name(),
                 base.market(),
                 base.horizon(),
                 base.fromGrade(),
@@ -108,5 +112,28 @@ final class TelegramAlerts {
     /** 심볼만 바꾼 후보 (이스케이프·길이 검사용). */
     static AlertDecision withSymbol(String symbol) {
         return candidate("trace-symbol", symbol, "D60");
+    }
+
+    /** 종목명만 바꾼 후보 (종목명 표기·폴백·이스케이프 검사용). */
+    static AlertDecision withName(String name) {
+        AlertDecision base = candidate("trace-name");
+        return new AlertDecision(
+                base.stockId(),
+                base.symbol(),
+                name,
+                base.market(),
+                base.horizon(),
+                base.fromGrade(),
+                base.toGrade(),
+                base.tier(),
+                base.transitionType(),
+                base.score(),
+                base.confidence(),
+                base.lowConfidenceFlag(),
+                base.triggerPrice(),
+                base.prevClose(),
+                base.tradeDate(),
+                base.suppressionReason(),
+                base.traceId());
     }
 }
