@@ -82,14 +82,35 @@ class ReferenceDataLoaderTest {
                         stockId, tradeDate, "D60", "PROMOTE", bd("29000"), bd("31000"), "HOLD"));
     }
 
+    private static List<CurveRow> curves(long stockId, LocalDate tradeDate) {
+        return List.of(
+                new CurveRow(
+                        stockId,
+                        tradeDate,
+                        "D20",
+                        List.of(
+                                new PricePoint(bd("29000"), bd("0.0200")),
+                                new PricePoint(bd("30000"), bd("0.0400")),
+                                new PricePoint(bd("31000"), bd("0.0100")))));
+    }
+
     private void stubQueries(List<StockRow> stocks, List<OhlcvRow> ohlcv, List<BandRow> bands) {
+        stubQueries(stocks, ohlcv, bands, List.of());
+    }
+
+    private void stubQueries(
+            List<StockRow> stocks,
+            List<OhlcvRow> ohlcv,
+            List<BandRow> bands,
+            List<CurveRow> curves) {
         jdbcTemplate.results.put(ReferenceDataLoader.STOCKS_SQL, stocks);
         jdbcTemplate.results.put(ReferenceDataLoader.OHLCV_SQL, ohlcv);
         jdbcTemplate.results.put(ReferenceDataLoader.BANDS_SQL, bands);
+        jdbcTemplate.results.put(ReferenceDataLoader.CURVES_SQL, curves);
     }
 
     @Test
-    @DisplayName("AC-1 ① — 세 테이블을 각 1회씩만 SELECT한다 (N+1 아님)")
+    @DisplayName("AC-1 ① / SPEC-SIGNAL-PRICECURVE-001 AC-006 — 네 테이블을 각 1회씩만 SELECT한다 (N+1 아님)")
     void load_queriesEachTableExactlyOnce() {
         // Arrange
         List<BandRow> bandRows = new ArrayList<>(bands(1L, PREV_DAY));
@@ -101,7 +122,8 @@ class ReferenceDataLoaderTest {
                         new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC),
                         new StockRow(2L, "000660", "테스트종목", Market.DOMESTIC)),
                 ohlcv,
-                bandRows);
+                bandRows,
+                curves(1L, PREV_DAY));
 
         // Act
         ReferenceSnapshot snapshot = loader.load(TODAY);
@@ -112,7 +134,60 @@ class ReferenceDataLoaderTest {
                 .containsExactly(
                         ReferenceDataLoader.STOCKS_SQL,
                         ReferenceDataLoader.OHLCV_SQL,
-                        ReferenceDataLoader.BANDS_SQL);
+                        ReferenceDataLoader.BANDS_SQL,
+                        ReferenceDataLoader.CURVES_SQL);
+    }
+
+    @Test
+    @DisplayName("SPEC-SIGNAL-PRICECURVE-001 AC-006 — 적재된 커브가 StockReference.priceCurves()에 실린다")
+    void load_assemblesPriceCurves() {
+        // Arrange
+        stubQueries(
+                List.of(new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC)),
+                flatOhlcv(1L),
+                bands(1L, PREV_DAY),
+                curves(1L, PREV_DAY));
+
+        // Act
+        StockReference reference = loader.load(TODAY).find(Market.DOMESTIC, "005930").orElseThrow();
+
+        // Assert
+        assertThat(reference.priceCurves()).containsOnlyKeys("D20");
+        assertThat(reference.priceCurves().get("D20").scoreAt(bd("30000")))
+                .isEqualByComparingTo("0.0400");
+    }
+
+    @Test
+    @DisplayName("커브 기준일이 전일 일봉과 다르면(스윕 누락일의 묵은 커브) 적재하지 않는다")
+    void load_ignoresStaleCurves() {
+        // Arrange
+        stubQueries(
+                List.of(new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC)),
+                flatOhlcv(1L),
+                bands(1L, PREV_DAY),
+                curves(1L, PREV_DAY.minusDays(1)));
+
+        // Act
+        StockReference reference = loader.load(TODAY).find(Market.DOMESTIC, "005930").orElseThrow();
+
+        // Assert
+        assertThat(reference.priceCurves()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("커브가 전혀 없으면 priceCurves는 빈 맵이다(폴백 경로의 전제)")
+    void load_leavesPriceCurvesEmptyWhenAbsent() {
+        // Arrange
+        stubQueries(
+                List.of(new StockRow(1L, "005930", "테스트종목", Market.DOMESTIC)),
+                flatOhlcv(1L),
+                bands(1L, PREV_DAY));
+
+        // Act
+        StockReference reference = loader.load(TODAY).find(Market.DOMESTIC, "005930").orElseThrow();
+
+        // Assert
+        assertThat(reference.priceCurves()).isEmpty();
     }
 
     @Test

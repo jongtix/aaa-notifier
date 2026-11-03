@@ -43,7 +43,11 @@ final class ReferenceAssembler {
      * @return 이력이 없으면 빈 값
      */
     static Optional<StockReference> assemble(
-            StockRow stock, LocalDate today, List<OhlcvRow> rows, List<BandRow> bandRows) {
+            StockRow stock,
+            LocalDate today,
+            List<OhlcvRow> rows,
+            List<BandRow> bandRows,
+            List<CurveRow> curveRows) {
         List<OhlcvRow> history =
                 rows.stream()
                         .filter(row -> row.tradeDate().isBefore(today))
@@ -63,7 +67,8 @@ final class ReferenceAssembler {
                         previous.close(),
                         averageVolume(history),
                         atr(history),
-                        horizonBands(stock.symbol(), previous.tradeDate(), bandRows)));
+                        horizonBands(stock.symbol(), previous.tradeDate(), bandRows),
+                        priceCurves(previous.tradeDate(), curveRows)));
     }
 
     private static BigDecimal averageVolume(List<OhlcvRow> history) {
@@ -125,6 +130,21 @@ final class ReferenceAssembler {
             return Optional.empty();
         }
         return Optional.of(new HorizonBands(promote.get(), demote.get()));
+    }
+
+    /**
+     * horizon별 가격-score 커브를 조립한다 (SPEC-SIGNAL-PRICECURVE-001 REQ-006).
+     *
+     * <p>밴드와 같은 "기준일 일치" 규칙을 쓴다 — 스윕이 누락된 거래일의 묵은 커브는 다른 전일 종가를 중심으로 계산된 그리드라 보간이 어긋나므로, 전일 일봉 날짜와
+     * 다른 {@code trade_date}의 커브는 적재하지 않는다.
+     */
+    private static Map<String, PriceScoreCurve> priceCurves(
+            LocalDate baseDate, List<CurveRow> curveRows) {
+        return curveRows.stream()
+                .filter(row -> row.tradeDate().equals(baseDate))
+                .collect(
+                        Collectors.toUnmodifiableMap(
+                                CurveRow::horizon, row -> new PriceScoreCurve(row.points())));
     }
 
     private static Optional<BandPartition> toPartition(List<BandRow> rows) {

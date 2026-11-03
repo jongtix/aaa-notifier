@@ -82,7 +82,8 @@ class ReferenceDataRefresherTest {
                 new BigDecimal("30000"),
                 new BigDecimal("1000"),
                 new BigDecimal("200"),
-                Map.of("D20", new HorizonBands(promote, demote)));
+                Map.of("D20", new HorizonBands(promote, demote)),
+                Map.of());
     }
 
     @Test

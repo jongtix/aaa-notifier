@@ -70,6 +70,12 @@ final class FilterTestFixtures {
     }
 
     static StockReference domesticReference(Map<String, HorizonBands> bands) {
+        return domesticReference(bands, Map.of());
+    }
+
+    /** 가격-score 커브까지 실어야 하는 테스트용 (SPEC-SIGNAL-PRICECURVE-001). */
+    static StockReference domesticReference(
+            Map<String, HorizonBands> bands, Map<String, PriceScoreCurve> priceCurves) {
         return new StockReference(
                 1L,
                 "005930",
@@ -79,7 +85,8 @@ final class FilterTestFixtures {
                 bd("30000"),
                 bd("1000000"),
                 bd("300"),
-                bands);
+                bands,
+                priceCurves);
     }
 
     static TradeTickObservation domesticTick(String price, LocalTime time, long accumulated) {
