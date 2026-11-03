@@ -2,6 +2,7 @@ package com.aaa.notifier.telegram;
 
 import com.aaa.notifier.filter.AlertDecision;
 import com.aaa.notifier.filter.Grade;
+import com.aaa.notifier.filter.ScoreBasis;
 import com.aaa.notifier.filter.SuppressionReason;
 import com.aaa.notifier.filter.TransitionType;
 import com.aaa.notifier.stream.Market;
@@ -34,7 +35,9 @@ final class TelegramAlerts {
                 new BigDecimal("410.0000"),
                 TRADE_DATE,
                 null,
-                "trace-ac05");
+                "trace-ac05",
+                new BigDecimal("-0.043"),
+                ScoreBasis.TRIGGER_PRICE);
     }
 
     /** 일반 발송 후보 (국내 HOLD→BUY, Tier 2). */
@@ -60,10 +63,12 @@ final class TelegramAlerts {
                 new BigDecimal("30000.0000"),
                 TRADE_DATE,
                 null,
-                traceId);
+                traceId,
+                new BigDecimal("0.043000"),
+                ScoreBasis.TRIGGER_PRICE);
     }
 
-    /** score·confidence 미수신 후보. */
+    /** score·confidence 미수신 후보 — 신호 미수신이라 displayScore도 null, 커브가 없어 PREV_CLOSE_FALLBACK. */
     static AlertDecision withoutSignal(String traceId) {
         AlertDecision base = candidate(traceId);
         return new AlertDecision(
@@ -83,7 +88,9 @@ final class TelegramAlerts {
                 base.prevClose(),
                 base.tradeDate(),
                 null,
-                traceId);
+                traceId,
+                null,
+                ScoreBasis.PREV_CLOSE_FALLBACK);
     }
 
     /** 억제 결정 (쿨다운). */
@@ -106,7 +113,9 @@ final class TelegramAlerts {
                 base.prevClose(),
                 base.tradeDate(),
                 SuppressionReason.COOLDOWN_ACTIVE,
-                traceId);
+                traceId,
+                base.displayScore(),
+                base.scoreBasis());
     }
 
     /** 심볼만 바꾼 후보 (이스케이프·길이 검사용). */
@@ -134,6 +143,8 @@ final class TelegramAlerts {
                 base.prevClose(),
                 base.tradeDate(),
                 base.suppressionReason(),
-                base.traceId());
+                base.traceId(),
+                base.displayScore(),
+                base.scoreBasis());
     }
 }

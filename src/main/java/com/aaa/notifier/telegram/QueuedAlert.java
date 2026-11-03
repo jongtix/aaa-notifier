@@ -1,6 +1,8 @@
 package com.aaa.notifier.telegram;
 
 import com.aaa.notifier.filter.AlertDecision;
+import com.aaa.notifier.filter.ScoreBasis;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -25,6 +27,10 @@ import java.util.Locale;
  * @param confidence confidence ({@code null} 가능)
  * @param tradeDate 거래일
  * @param reason 이관 사유 (소문자)
+ * @param displayScore 표시용 score (SPEC-SIGNAL-PRICECURVE-001 REQ-015) — {@link AlertDecision}과 같은
+ *     값·분기 규칙을 공유한다. 이 SPEC 배포 전에 쌓인 구 큐 항목에는 이 멤버가 없어 역직렬화 시 {@code null}일 수 있다 — 쓸 때는 {@code
+ *     null}이면 멤버 자체를 생략한다(Boot 3.5 형식 계약과의 바이트 호환, {@code RedisPendingQueueFormatContractTest} 참조)
+ * @param scoreBasis {@code displayScore}의 근거 가격 (REQ-015) — 위와 같은 이유로 {@code null}이면 멤버를 생략한다
  */
 public record QueuedAlert(
         @JsonProperty("queued_at") LocalDateTime queuedAt,
@@ -39,7 +45,11 @@ public record QueuedAlert(
         @JsonProperty("score") BigDecimal score,
         @JsonProperty("confidence") BigDecimal confidence,
         @JsonProperty("trade_date") LocalDate tradeDate,
-        @JsonProperty("reason") String reason) {
+        @JsonProperty("reason") String reason,
+        @JsonProperty("display_score") @JsonInclude(JsonInclude.Include.NON_NULL)
+                BigDecimal displayScore,
+        @JsonProperty("score_basis") @JsonInclude(JsonInclude.Include.NON_NULL)
+                ScoreBasis scoreBasis) {
 
     /**
      * 결정에서 항목을 만든다.
@@ -64,6 +74,8 @@ public record QueuedAlert(
                 decision.score(),
                 decision.confidence(),
                 decision.tradeDate(),
-                reason.name().toLowerCase(Locale.ROOT));
+                reason.name().toLowerCase(Locale.ROOT),
+                decision.displayScore(),
+                decision.scoreBasis());
     }
 }

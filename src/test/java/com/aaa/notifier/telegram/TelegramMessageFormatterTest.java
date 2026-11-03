@@ -2,9 +2,13 @@ package com.aaa.notifier.telegram;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.aaa.notifier.filter.AlertDecision;
+import com.aaa.notifier.filter.ScoreBasis;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 @DisplayName("TelegramMessageFormatter — 알림 본문 필드·HTML 이스케이프·길이 (REQ-011, AC-05)")
@@ -21,8 +25,8 @@ class TelegramMessageFormatterTest {
                 .contains("테스트종목(BRK.B)")
                 .contains("[단기 20일]")
                 .contains("<b>BUY</b> → <b>STRONG_BUY</b>")
-                .contains("예상 수익 -4.30%")
-                .contains("정확도 0.612")
+                .contains("예상 수익(현재가 기준) -4.30%")
+                .contains("정확도(전일 종가 기준) 0.612")
                 .contains("기준가 412.5")
                 .contains("Tier 1")
                 .contains("저확신");
@@ -37,7 +41,7 @@ class TelegramMessageFormatterTest {
                 .isEqualTo(
                         "[Tier 2] 테스트종목(005930) [단기 20일]\n"
                                 + "<b>HOLD</b> → <b>BUY</b>\n"
-                                + "예상 수익 +4.30% · 정확도 0.712\n"
+                                + "예상 수익(현재가 기준) +4.30% · 정확도(전일 종가 기준) 0.712\n"
                                 + "기준가 30600");
     }
 
@@ -61,7 +65,8 @@ class TelegramMessageFormatterTest {
     @Test
     @DisplayName("양수 score는 + 부호로 표기한다 (0.043 → +4.30%)")
     void positiveScore_hasPlusSign() {
-        assertThat(formatter.formatAlert(TelegramAlerts.candidate("t1"))).contains("예상 수익 +4.30%");
+        assertThat(formatter.formatAlert(TelegramAlerts.candidate("t1")))
+                .contains("예상 수익(현재가 기준) +4.30%");
     }
 
     @Test
@@ -156,5 +161,96 @@ class TelegramMessageFormatterTest {
                 .doesNotContain("버퍼 포화")
                 .doesNotContain("429 한도 초과")
                 .doesNotContain("종료 잔류");
+    }
+
+    @Nested
+    @DisplayName("displayScore/scoreBasis 라벨 (SPEC-SIGNAL-PRICECURVE-001 REQ-011/012/013/014/015)")
+    class ScoreBasisLabels {
+
+        @Test
+        @DisplayName(
+                "AC-013 — TRIGGER_PRICE와 PREV_CLOSE_FALLBACK 라벨은 서로 다른 문자열이고, 폴백 라벨은 \"전일\" 또는"
+                        + " \"종가\" 형태소를 포함한다")
+        void fallbackLabel_differsFromTriggerPriceLabel_andDisclosesBasis() {
+            String triggerPriceText =
+                    TelegramMessageFormatter.formatDisplayScore(
+                            new BigDecimal("0.0430"), ScoreBasis.TRIGGER_PRICE);
+            String fallbackText =
+                    TelegramMessageFormatter.formatDisplayScore(
+                            new BigDecimal("0.0430"), ScoreBasis.PREV_CLOSE_FALLBACK);
+
+            assertThat(fallbackText).isNotEqualTo(triggerPriceText);
+            assertThat(fallbackText).containsAnyOf("전일", "종가");
+        }
+
+        @Test
+        @DisplayName("AC-012 — TRIGGER_PRICE 라벨은 발동가/현재가 기준임을 알린다")
+        void triggerPriceLabel_disclosesCurrentPriceBasis() {
+            String text =
+                    TelegramMessageFormatter.formatDisplayScore(
+                            new BigDecimal("0.0430"), ScoreBasis.TRIGGER_PRICE);
+
+            assertThat(text).contains("현재가");
+        }
+
+        @Test
+        @DisplayName("AC-011 — displayScore가 null이면(신호 미수신) scoreBasis와 무관하게 기존 미수신 문구다")
+        void nullDisplayScore_rendersPlaceholderRegardlessOfBasis() {
+            assertThat(TelegramMessageFormatter.formatDisplayScore(null, ScoreBasis.TRIGGER_PRICE))
+                    .isEqualTo("예상 수익 미수신");
+            assertThat(
+                            TelegramMessageFormatter.formatDisplayScore(
+                                    null, ScoreBasis.PREV_CLOSE_FALLBACK))
+                    .isEqualTo("예상 수익 미수신");
+        }
+
+        @Test
+        @DisplayName("AC-014 — confidence 라벨은 항상 전일 종가 기준을 명시하고, TRIGGER_PRICE score 라벨과 문자열이 다르다")
+        void confidenceLabel_alwaysDisclosesPrevCloseBasis_andDiffersFromScoreLabel() {
+            // candidate()는 scoreBasis=TRIGGER_PRICE — score 라벨은 "현재가 기준", confidence 라벨은 항상
+            // "전일 종가 기준"이라 둘은 같은 근거를 공유하는 것처럼 보이지 않아야 한다(REQ-014).
+            String text = formatter.formatAlert(TelegramAlerts.candidate("t-ac14"));
+            String[] lines = text.split("\n");
+            String[] scoreAndConfidence = lines[2].split(" · ");
+
+            assertThat(scoreAndConfidence[0]).contains("현재가 기준");
+            assertThat(scoreAndConfidence[1]).contains("전일 종가 기준");
+            assertThat(scoreAndConfidence[0]).isNotEqualTo(scoreAndConfidence[1]);
+        }
+
+        @Test
+        @DisplayName("AC-012/015 — formatAlert()와 formatSummary()는 같은 scoreBasis에 같은 라벨 문자열을 쓴다")
+        void formatAlertAndFormatSummary_shareSameLabelForSameScoreBasis() {
+            AlertDecision decision = TelegramAlerts.candidate("t-shared");
+            LocalDateTime now = LocalDateTime.of(2026, 9, 29, 10, 0);
+
+            String alertText = formatter.formatAlert(decision);
+            String summaryText =
+                    formatter.formatSummary(
+                            now,
+                            now,
+                            1,
+                            List.of(QueuedAlert.of(decision, now, DivertReason.SAFE_MODE)),
+                            10);
+
+            String basisLabel =
+                    decision.scoreBasis() == ScoreBasis.TRIGGER_PRICE ? "현재가 기준" : "전일 종가 기준";
+            assertThat(alertText).contains("예상 수익(" + basisLabel + ")");
+            assertThat(summaryText).contains("예상 수익(" + basisLabel + ")");
+        }
+
+        @Test
+        @DisplayName(
+                "AC-015 — QueuedAlert.of()는 AlertDecision의 displayScore/scoreBasis를 정보 손실 없이 옮긴다")
+        void queuedAlertOf_carriesDisplayScoreAndScoreBasisWithoutLoss() {
+            AlertDecision decision = TelegramAlerts.candidate("t-ac15");
+
+            QueuedAlert queued =
+                    QueuedAlert.of(
+                            decision, LocalDateTime.of(2026, 9, 29, 10, 0), DivertReason.SAFE_MODE);
+
+            assertThat(queued.displayScore()).isEqualByComparingTo(decision.displayScore());
+            assertThat(queued.scoreBasis()).isEqualTo(decision.scoreBasis());
+        }
     }
 }
