@@ -40,6 +40,7 @@ class GuardEvaluatorTest {
                     bd("30000"),
                     bd("1000000"),
                     bd("300"),
+                    Map.of(),
                     Map.of());
 
     /** 12:15 = 개장 후 195분 = 세션의 50% → 기대 누적 500,000, 30% 임계 = 150,000. */
@@ -105,6 +106,7 @@ class GuardEvaluatorTest {
                             bd("30000"),
                             null,
                             bd("300"),
+                            Map.of(),
                             Map.of());
 
             assertThat(evaluator.evaluate(noAverage, at(MIDDAY), 999_999L, bd("100")))
@@ -150,6 +152,7 @@ class GuardEvaluatorTest {
                             bd("100"),
                             bd("1000"),
                             bd("2"),
+                            Map.of(),
                             Map.of());
             ZonedDateTime tick =
                     ZonedDateTime.of(
@@ -190,6 +193,7 @@ class GuardEvaluatorTest {
                             bd("30000"),
                             bd("1000000"),
                             null,
+                            Map.of(),
                             Map.of());
 
             assertThat(evaluator.evaluate(noAtr, at(MIDDAY), 900_000L, bd("10")))

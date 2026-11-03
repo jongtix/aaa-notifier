@@ -14,6 +14,9 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 장전 참조 데이터·밴드 적재기 (REQ-NOTIFIER-FILTER-001, plan.md §D.1, design.md §5).
@@ -45,6 +48,17 @@ public class ReferenceDataLoader {
                     + " AND stock_id IN (SELECT id FROM stocks WHERE "
                     + WATCHED_CONDITION
                     + ") ORDER BY stock_id, horizon, boundary_set, band_seq";
+
+    /** SPEC-SIGNAL-PRICECURVE-001 REQ-006 — 밴드와 같은 창·서브쿼리 패턴으로 커브를 1회 SELECT한다. */
+    static final String CURVES_SQL =
+            "SELECT stock_id, trade_date, horizon, curve"
+                    + " FROM signal_price_curves WHERE trade_date >= ? AND trade_date < ?"
+                    + " AND stock_id IN (SELECT id FROM stocks WHERE "
+                    + WATCHED_CONDITION
+                    + ") ORDER BY stock_id, trade_date, horizon";
+
+    /** {@code curve} JSON 컬럼 역직렬화 전용 — Jackson 3 기본 설정(이 레포가 쓰는 tools.jackson, QueuedAlert와 무관). */
+    private static final ObjectMapper CURVE_JSON = JsonMapper.builder().build();
 
     private static final Map<String, Market> MARKET_BY_CODE =
             Map.of(
@@ -85,6 +99,14 @@ public class ReferenceDataLoader {
                             rs.getBigDecimal("price_high"),
                             rs.getString("signal_class"));
 
+    private static final RowMapper<CurveRow> CURVE_MAPPER =
+            (rs, rowNum) ->
+                    new CurveRow(
+                            rs.getLong("stock_id"),
+                            rs.getObject("trade_date", LocalDate.class),
+                            rs.getString("horizon"),
+                            parseCurve(rs.getString("curve")));
+
     private final JdbcTemplate jdbcTemplate;
 
     /** {@code daily_ohlcv}·밴드 조회 창(달력일). */
@@ -109,11 +131,14 @@ public class ReferenceDataLoader {
         List<StockRow> stocks = jdbcTemplate.query(STOCKS_SQL, STOCK_MAPPER);
         List<OhlcvRow> ohlcv = jdbcTemplate.query(OHLCV_SQL, OHLCV_MAPPER, lower, upper);
         List<BandRow> bands = jdbcTemplate.query(BANDS_SQL, BAND_MAPPER, lower, upper);
+        List<CurveRow> curves = jdbcTemplate.query(CURVES_SQL, CURVE_MAPPER, lower, upper);
 
         Map<Long, List<OhlcvRow>> ohlcvByStock =
                 ohlcv.stream().collect(Collectors.groupingBy(OhlcvRow::stockId));
         Map<Long, List<BandRow>> bandsByStock =
                 bands.stream().collect(Collectors.groupingBy(BandRow::stockId));
+        Map<Long, List<CurveRow>> curvesByStock =
+                curves.stream().collect(Collectors.groupingBy(CurveRow::stockId));
 
         return new ReferenceSnapshot(
                 stocks.stream()
@@ -124,9 +149,23 @@ public class ReferenceDataLoader {
                                                 stock,
                                                 marketToday.get(stock.market()),
                                                 ohlcvByStock.getOrDefault(stock.id(), List.of()),
-                                                bandsByStock.getOrDefault(stock.id(), List.of()))
+                                                bandsByStock.getOrDefault(stock.id(), List.of()),
+                                                curvesByStock.getOrDefault(stock.id(), List.of()))
                                                 .stream())
                         .toList());
+    }
+
+    /**
+     * {@code signal_price_curves.curve} JSON 배열을 {@link PricePoint} 목록으로 역직렬화한다.
+     *
+     * @throws IllegalStateException JSON 파싱 실패 — 저장 형식이 analyzer 쓰기 계약과 어긋난 경우뿐이며 정상 운영에서는 발생하지 않는다
+     */
+    private static List<PricePoint> parseCurve(String json) {
+        try {
+            return List.of(CURVE_JSON.readValue(json, PricePoint[].class));
+        } catch (JacksonException e) {
+            throw new IllegalStateException("signal_price_curves.curve 파싱 실패", e);
+        }
     }
 
     /**

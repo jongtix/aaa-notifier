@@ -18,6 +18,8 @@ import java.util.Objects;
  * @param averageVolume 최근 20거래일 평균 일 거래량 (거래량 가드 입력)
  * @param atr ATR(14). 일봉 이력이 15개 미만이면 {@code null} — ATR 가드는 산출 불가를 억제로 다룬다
  * @param bands horizon({@code "D20"}/{@code "D60"}) → 이원 경계 파티션 쌍
+ * @param priceCurves horizon → 가격-score 커브 (SPEC-SIGNAL-PRICECURVE-001 REQ-007) — PROMOTE/DEMOTE
+ *     구분이 없으므로 {@link HorizonBands}에 넣지 않고 형제 필드로 둔다. 틱 경로는 이 스냅샷만 읽는다(REQ-007, DB 동기 조회 금지)
  */
 public record StockReference(
         long stockId,
@@ -28,7 +30,8 @@ public record StockReference(
         BigDecimal prevClose,
         BigDecimal averageVolume,
         BigDecimal atr,
-        Map<String, HorizonBands> bands) {
+        Map<String, HorizonBands> bands,
+        Map<String, PriceScoreCurve> priceCurves) {
 
     public StockReference {
         Objects.requireNonNull(symbol, "symbol must not be null");
@@ -36,5 +39,6 @@ public record StockReference(
         Objects.requireNonNull(prevTradeDate, "prevTradeDate must not be null");
         Objects.requireNonNull(prevClose, "prevClose must not be null");
         bands = Map.copyOf(bands);
+        priceCurves = Map.copyOf(priceCurves);
     }
 }

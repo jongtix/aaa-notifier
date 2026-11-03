@@ -94,7 +94,8 @@ class FilterPipelineDwellTest {
                 bd(prevClose),
                 bd("1000000"),
                 bd("1000000"),
-                Map.of(HORIZON, bands));
+                Map.of(HORIZON, bands),
+                Map.of());
     }
 
     /** 다섯 등급이 가격 순으로 늘어선 밴드(데드존 없음). 전일 종가 25,000은 HOLD 영역이다. */
@@ -509,7 +510,8 @@ class FilterPipelineDwellTest {
                             bd("25000"),
                             bd("1000000"),
                             bd("1000000"),
-                            x.bands());
+                            x.bands(),
+                            Map.of());
             FilterPipeline pipeline =
                     FilterPipelines.create(
                             holderOf(x, y),
@@ -650,7 +652,8 @@ class FilterPipelineDwellTest {
                                     bd("25000"),
                                     bd("1000000"),
                                     bd("1000000"),
-                                    Map.of("D20", bands, "D60", bands)),
+                                    Map.of("D20", bands, "D60", bands),
+                                    Map.of()),
                             FilterTestFixtures.DOMESTIC_SESSION_CLOCK);
             store.setGrade(SYMBOL, "D20", Grade.HOLD, Duration.ofHours(1));
             store.setGrade(SYMBOL, "D60", Grade.HOLD, Duration.ofHours(1));

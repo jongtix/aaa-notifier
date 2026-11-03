@@ -167,7 +167,8 @@ class FilterPipelineBandTest {
                                                 FilterTestFixtures.band(
                                                         "78.5000", "99.9000", Grade.HOLD),
                                                 FilterTestFixtures.band(
-                                                        "100.0000", "121.5000", Grade.BUY)))));
+                                                        "100.0000", "121.5000", Grade.BUY)))),
+                        Map.of());
         FilterPipeline pipeline =
                 FilterPipelines.create(
                         holderOf(aapl),
@@ -209,7 +210,8 @@ class FilterPipelineBandTest {
                         bd("100.0000"),
                         bd("1000000"),
                         bd("2"),
-                        Map.of("D20", FilterTestFixtures.uniformBands(Grade.BUY)));
+                        Map.of("D20", FilterTestFixtures.uniformBands(Grade.BUY)),
+                        Map.of());
         FilterPipeline pipeline =
                 FilterPipelines.create(
                         holderOf(aapl),

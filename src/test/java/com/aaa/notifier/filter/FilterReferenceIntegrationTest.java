@@ -3,6 +3,7 @@ package com.aaa.notifier.filter;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aaa.notifier.stream.Market;
+import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -78,6 +79,30 @@ class FilterReferenceIntegrationTest {
                 List.of(
                         new String[] {"21000", "29790", "BUY"},
                         new String[] {"29800", "39000", "STRONG_BUY"}));
+    }
+
+    @Test
+    @DisplayName(
+            "SPEC-SIGNAL-PRICECURVE-001 AC-006 — 장전 cron 1회로 signal_price_curves가 1회 SELECT·조립된다")
+    void domesticPreOpen_loadsPriceCurve() {
+        // Arrange
+        FilterDbFixtures.insertCurve(
+                jdbcTemplate,
+                stockId,
+                "D20",
+                "30000",
+                "[{\"price\":29000,\"score\":0.02},"
+                        + "{\"price\":30000,\"score\":0.04},"
+                        + "{\"price\":31000,\"score\":0.01}]");
+
+        // Act
+        refresher.onDomesticPreOpen();
+
+        // Assert
+        StockReference reference = holder.current().find(Market.DOMESTIC, "005930").orElseThrow();
+        assertThat(reference.priceCurves()).containsOnlyKeys("D20");
+        assertThat(reference.priceCurves().get("D20").scoreAt(new BigDecimal("30000")))
+                .isEqualByComparingTo("0.04");
     }
 
     @Test

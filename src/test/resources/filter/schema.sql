@@ -57,6 +57,25 @@ CREATE TABLE signal_price_bands
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
 
+-- SPEC-SIGNAL-PRICECURVE-001 V50 예정 형태 — 아직 aaa-collector에 머지되지 않았으므로 이 파일은 notifier 테스트 전용
+-- 픽스처다(운영 DDL과 독립). boundary_set 컬럼 없음(REQ-002 — PROMOTE/DEMOTE 공유, 키당 1행).
+CREATE TABLE signal_price_curves
+(
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    stock_id      BIGINT         NOT NULL,
+    trade_date    DATE           NOT NULL,
+    horizon       VARCHAR(3)     NOT NULL,
+    prev_close    DECIMAL(18, 4) NOT NULL,
+    grid_step_pct DECIMAL(6, 5)  NOT NULL,
+    curve         JSON           NOT NULL,
+    model_version VARCHAR(64)    NOT NULL,
+    created_at    DATETIME       NOT NULL,
+    UNIQUE KEY uk_signal_price_curves (stock_id, trade_date, horizon),
+    CONSTRAINT fk_signal_price_curves_stock FOREIGN KEY (stock_id) REFERENCES stocks (id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci;
+
 -- V49 그대로 (COMMENT 제외) — DRYRUN INSERT 대상
 CREATE TABLE notification_log
 (

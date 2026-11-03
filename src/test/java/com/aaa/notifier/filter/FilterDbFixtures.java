@@ -20,6 +20,7 @@ final class FilterDbFixtures {
     static void truncate(JdbcTemplate jdbcTemplate) {
         jdbcTemplate.update("DELETE FROM notification_log");
         jdbcTemplate.update("DELETE FROM signal_price_bands");
+        jdbcTemplate.update("DELETE FROM signal_price_curves");
         jdbcTemplate.update("DELETE FROM daily_ohlcv");
         jdbcTemplate.update("DELETE FROM stocks");
     }
@@ -94,5 +95,27 @@ final class FilterDbFixtures {
                     band[2],
                     NOW);
         }
+    }
+
+    /**
+     * {@code signal_price_curves} 1행을 넣는다 — {@code curve}는 JSON 문자열 그대로
+     * 받는다(SPEC-SIGNAL-PRICECURVE-001 REQ-002/003).
+     */
+    static void insertCurve(
+            JdbcTemplate jdbcTemplate,
+            long stockId,
+            String horizon,
+            String prevClose,
+            String curveJson) {
+        jdbcTemplate.update(
+                "INSERT INTO signal_price_curves (stock_id, trade_date, horizon, prev_close,"
+                        + " grid_step_pct, curve, model_version, created_at)"
+                        + " VALUES (?, ?, ?, ?, 0.00500, ?, 'test', ?)",
+                stockId,
+                PREV_DAY,
+                horizon,
+                prevClose,
+                curveJson,
+                NOW);
     }
 }
