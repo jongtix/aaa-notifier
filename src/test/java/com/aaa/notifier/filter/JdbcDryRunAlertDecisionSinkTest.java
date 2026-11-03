@@ -55,7 +55,9 @@ class JdbcDryRunAlertDecisionSinkTest {
                 bd("30000"),
                 LocalDate.of(2026, 9, 29),
                 null,
-                "trace-candidate");
+                "trace-candidate",
+                bd("0.043000"),
+                ScoreBasis.TRIGGER_PRICE);
     }
 
     static AlertDecision suppressed() {
@@ -76,7 +78,9 @@ class JdbcDryRunAlertDecisionSinkTest {
                 bd("30000"),
                 LocalDate.of(2026, 9, 29),
                 SuppressionReason.GUARD_VOLUME,
-                "trace-suppressed");
+                "trace-suppressed",
+                bd("-0.021000"),
+                ScoreBasis.TRIGGER_PRICE);
     }
 
     private double counter(String name, String... tags) {

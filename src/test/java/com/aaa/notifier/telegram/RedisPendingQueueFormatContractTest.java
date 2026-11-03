@@ -66,7 +66,9 @@ class RedisPendingQueueFormatContractTest {
                 new BigDecimal("-0.043"),
                 null,
                 LocalDate.of(2026, 9, 29),
-                "safe_mode");
+                "safe_mode",
+                null,
+                null);
     }
 
     private static String fixture() throws IOException {

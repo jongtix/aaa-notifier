@@ -75,7 +75,9 @@ class FilterDecisionSinkIntegrationTest {
                 decision.prevClose(),
                 decision.tradeDate(),
                 decision.suppressionReason(),
-                decision.traceId());
+                decision.traceId(),
+                decision.displayScore(),
+                decision.scoreBasis());
     }
 
     private Map<String, Object> rowOf(String traceId) {

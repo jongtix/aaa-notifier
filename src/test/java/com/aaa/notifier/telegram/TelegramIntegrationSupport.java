@@ -94,7 +94,9 @@ final class TelegramIntegrationSupport {
                 decision.prevClose(),
                 decision.tradeDate(),
                 decision.suppressionReason(),
-                decision.traceId());
+                decision.traceId(),
+                decision.displayScore(),
+                decision.scoreBasis());
     }
 
     static int rowCount(JdbcTemplate jdbcTemplate, String eventType) {

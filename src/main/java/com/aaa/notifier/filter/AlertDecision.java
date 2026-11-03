@@ -30,6 +30,10 @@ import java.util.Objects;
  * @param suppressionReason 억제 사유. {@code null}이면 발송 후보
  * @param traceId 추적 ID — {@code notification_log.trace_id}(NOT NULL), TELEGRAM-001이 같은 값으로 후속 행을
  *     잇는다
+ * @param displayScore 표시용 score (SPEC-SIGNAL-PRICECURVE-001 REQ-008/010) — 장전 적재 커브가 있으면 발동가 보간값,
+ *     없으면 {@code score}와 같은 전일 종가 기준 값. {@code score}(전일 종가 기준, {@code notification_log.score} 원천)는
+ *     바뀌지 않는다 — 이 필드는 추가 필드다
+ * @param scoreBasis {@code displayScore}의 근거 가격 (REQ-011) — 하류 소비자는 표시 분기를 이 값으로만 한다
  */
 public record AlertDecision(
         long stockId,
@@ -48,7 +52,9 @@ public record AlertDecision(
         BigDecimal prevClose,
         LocalDate tradeDate,
         SuppressionReason suppressionReason,
-        String traceId) {
+        String traceId,
+        BigDecimal displayScore,
+        ScoreBasis scoreBasis) {
 
     public AlertDecision {
         Objects.requireNonNull(symbol, "symbol must not be null");
@@ -60,6 +66,7 @@ public record AlertDecision(
         Objects.requireNonNull(prevClose, "prevClose must not be null");
         Objects.requireNonNull(tradeDate, "tradeDate must not be null");
         Objects.requireNonNull(traceId, "traceId must not be null");
+        Objects.requireNonNull(scoreBasis, "scoreBasis must not be null");
     }
 
     /** 발송 후보(억제되지 않은 결정)인지. */

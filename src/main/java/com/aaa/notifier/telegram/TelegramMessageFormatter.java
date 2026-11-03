@@ -1,6 +1,7 @@
 package com.aaa.notifier.telegram;
 
 import com.aaa.notifier.filter.AlertDecision;
+import com.aaa.notifier.filter.ScoreBasis;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -73,7 +74,7 @@ public class TelegramMessageFormatter {
                     .append('→')
                     .append(escape(alert.to()))
                     .append(' ')
-                    .append(escape(formatScore(alert.score())));
+                    .append(escape(formatDisplayScore(alert.displayScore(), alert.scoreBasis())));
         }
         if (count > shown) {
             text.append("\n외 ").append(count - shown).append('건');
@@ -100,7 +101,7 @@ public class TelegramMessageFormatter {
                 .append("</b> → <b>")
                 .append(decision.toGrade().name())
                 .append("</b>\n")
-                .append(escape(formatScore(decision.score())))
+                .append(escape(formatDisplayScore(decision.displayScore(), decision.scoreBasis())))
                 .append(" · ")
                 .append(escape(formatConfidence(decision.confidence())))
                 .append("\n기준가 ")
@@ -177,11 +178,44 @@ public class TelegramMessageFormatter {
         return "예상 수익 " + sign + percent.toPlainString() + "%";
     }
 
+    /**
+     * {@code displayScore}를 {@code scoreBasis}에 따라 다른 라벨로 표시한다 (SPEC-SIGNAL-PRICECURVE-001
+     * REQ-012/013) — 분기는 오직 {@code scoreBasis} enum 값으로만 한다(REQ-011). 한글 문구는 run 단계의 placeholder이며
+     * 정확한 바이트 표현은 sync 단계(manager-docs)에서 확정한다(두 라벨이 서로 다른 문자열이고 폴백 라벨이 "전일 종가" 근거를 드러낸다는 행위만 이 단계의
+     * 완료 기준이다).
+     *
+     * @param displayScore 표시용 score. {@code null}이면(신호 미수신 — 커브 유무와 무관한 선재 상태) 기존 "미수신" 문구를 그대로 쓴다
+     *     — 이 null 체크는 {@code scoreBasis} 분기와 무관하다
+     * @param scoreBasis {@code displayScore}의 근거 가격
+     */
+    static String formatDisplayScore(BigDecimal displayScore, ScoreBasis scoreBasis) {
+        if (displayScore == null) {
+            return "예상 수익 미수신";
+        }
+        BigDecimal percent =
+                displayScore.movePointRight(2).setScale(PERCENT_SCALE, RoundingMode.HALF_UP);
+        String sign = percent.signum() >= 0 ? "+" : "";
+        return "예상 수익(" + basisLabel(scoreBasis) + ") " + sign + percent.toPlainString() + "%";
+    }
+
+    /** {@code scoreBasis} 근거-공개 라벨 — placeholder(sync 단계 확정 전). */
+    private static String basisLabel(ScoreBasis scoreBasis) {
+        return switch (scoreBasis) {
+            case TRIGGER_PRICE -> "현재가 기준";
+            case PREV_CLOSE_FALLBACK -> "전일 종가 기준";
+        };
+    }
+
+    /**
+     * confidence는 항상 전일 종가 기준(분위수 회귀, 신호당 1회 산출)이다 — {@code scoreBasis}와 무관하게 이 사실을 라벨에 명시해, score
+     * 라벨(발동가/현재가 기준일 수 있음)과 혼동되지 않게 한다(REQ-014).
+     */
     private static String formatConfidence(BigDecimal confidence) {
         if (confidence == null) {
             return "정확도 미수신";
         }
-        return "정확도 " + confidence.setScale(CONFIDENCE_SCALE, RoundingMode.HALF_UP).toPlainString();
+        return "정확도(전일 종가 기준) "
+                + confidence.setScale(CONFIDENCE_SCALE, RoundingMode.HALF_UP).toPlainString();
     }
 
     private static String formatPrice(BigDecimal price) {

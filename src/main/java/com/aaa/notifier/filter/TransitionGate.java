@@ -149,6 +149,20 @@ public class TransitionGate {
         BigDecimal score = signal.map(SignalSnapshot::score).orElse(null);
         BigDecimal confidence = signal.map(SignalSnapshot::confidence).orElse(null);
         StockReference reference = detection.reference();
+        PriceScoreCurve curve = reference.priceCurves().get(detection.horizon());
+        BigDecimal displayScore;
+        ScoreBasis scoreBasis;
+        if (curve != null) {
+            // SPEC-SIGNAL-PRICECURVE-001 REQ-008/009 — 발동 체결가를 커브에서 보간(범위 밖은 클램프)한다.
+            displayScore = curve.scoreAt(detection.observation().price());
+            scoreBasis = ScoreBasis.TRIGGER_PRICE;
+        } else {
+            // REQ-010 — 장전 적재 커브가 없으면 전일 종가 기준 score로 대체한다. REQ-011: 분기는 scoreBasis로만 하고,
+            // displayScore의 null 여부로 "커브가 있었는지"를 추론하지 않는다(score 자체가 null일 수 있는 건 신호 미수신이라는
+            // 별개의, 선재하는 상태 — notification_log.score의 기존 의미는 바꾸지 않는다).
+            displayScore = score;
+            scoreBasis = ScoreBasis.PREV_CLOSE_FALLBACK;
+        }
         return new AlertDecision(
                 reference.stockId(),
                 reference.symbol(),
@@ -166,6 +180,8 @@ public class TransitionGate {
                 reference.prevClose(),
                 detection.tradeDate(),
                 reason,
-                detection.traceId());
+                detection.traceId(),
+                displayScore,
+                scoreBasis);
     }
 }

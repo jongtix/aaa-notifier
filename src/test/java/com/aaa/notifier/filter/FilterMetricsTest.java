@@ -132,7 +132,9 @@ class FilterMetricsTest {
                         new BigDecimal("30000"),
                         LocalDate.of(2026, 9, 29),
                         SuppressionReason.DWELL_PENDING,
-                        "trace"));
+                        "trace",
+                        null,
+                        ScoreBasis.PREV_CLOSE_FALLBACK));
 
         // Assert
         assertThat(registry.scrape())

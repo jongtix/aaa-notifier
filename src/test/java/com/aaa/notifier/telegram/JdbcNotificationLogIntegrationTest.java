@@ -88,7 +88,9 @@ class JdbcNotificationLogIntegrationTest {
                 base.prevClose(),
                 base.tradeDate(),
                 null,
-                base.traceId());
+                base.traceId(),
+                base.displayScore(),
+                base.scoreBasis());
     }
 
     private Map<String, Object> onlyRow() {
